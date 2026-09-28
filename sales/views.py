@@ -1,0 +1,418 @@
+from calendar import month_name
+from datetime import date
+from decimal import Decimal
+import logging
+
+from django.db import IntegrityError
+from django.db.models import Count
+from django.db import transaction as db_transaction
+from django.http import JsonResponse
+from django.urls import reverse
+from django.shortcuts import get_object_or_404, redirect, render
+
+from dealers.models import Route
+from inventory.models import StockTransaction
+from products.models import Product
+
+from .models import CURRENCY_DENOMINATIONS, CurrencyCount
+
+from .models import PaymentReconciliation, SalesItem, SalesTransaction
+
+
+logger = logging.getLogger(__name__)
+
+
+def currency_count_context(currency_count=None, form_data=None):
+    rows = []
+    for denomination in CURRENCY_DENOMINATIONS:
+        count = currency_count.quantity_for(denomination) if currency_count else 0
+        if form_data is not None:
+            try:
+                count = int(form_data.get(f"currency_count_{denomination}", count) or 0)
+            except (TypeError, ValueError):
+                count = 0
+        rows.append((denomination, count, Decimal(denomination) * count))
+    return {
+        "currency_denominations": rows,
+        "currency_total_cash": sum((row[2] for row in rows), Decimal("0")),
+        "has_currency_count": currency_count is not None,
+    }
+
+
+def update_currency_count_from_request(request, currency_count):
+    """Validate and save whole-note counts; the result is the cash source of truth."""
+    for denomination in CURRENCY_DENOMINATIONS:
+        raw_quantity = request.POST.get(f"currency_count_{denomination}", "0")
+        try:
+            quantity = int(raw_quantity or 0)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Currency quantities must be whole non-negative numbers.") from exc
+        if quantity < 0:
+            raise ValueError("Currency quantities cannot be negative.")
+        setattr(currency_count, CurrencyCount.quantity_field(denomination), quantity)
+    currency_count.save()
+    return currency_count
+
+def sales_entry(request):
+    routes = list(Route.objects.filter(active=True))
+    weekday_order = {weekday: index for index, weekday in enumerate(Route.WEEKDAY_ORDER)}
+    routes.sort(key=lambda route: (weekday_order.get(route.weekday, len(weekday_order)), route.route_name.lower()))
+    products = list(Product.objects.filter(active=True))
+    category_order = {category: index for index, category in enumerate(Product.CATEGORY_ORDER)}
+    products.sort(key=lambda product: (category_order.get(product.category, len(category_order)), product.name.lower()))
+    product_groups = [(category, [product for product in products if product.category == category]) for category in Product.CATEGORY_ORDER]
+    selected_date = request.POST.get("date") if request.method == "POST" else request.GET.get("date")
+    try:
+        selected_date = date.fromisoformat(selected_date) if selected_date else date.today()
+    except ValueError:
+        selected_date = date.today()
+    selected_day = selected_date.strftime("%A")
+    weekday_by_date_index = (Route.MONDAY, Route.TUESDAY, Route.WEDNESDAY, Route.THURSDAY, None, Route.SATURDAY, Route.SUNDAY)
+    expected_weekday = weekday_by_date_index[selected_date.weekday()]
+    default_route_name = Route.DEFAULT_ROUTE_BY_WEEKDAY.get(expected_weekday)
+    for route in routes:
+        route.is_default_route = route.route_name.casefold() == (Route.DEFAULT_ROUTE_BY_WEEKDAY.get(route.weekday) or "").casefold()
+    default_route = next(
+        (route for route in routes if route.route_name.casefold() == (default_route_name or "").casefold()),
+        None,
+    )
+    route_suggestions = [(route.weekday, route.route_name) for route in routes if route.is_default_route]
+    error = None
+    if request.method == "POST":
+        try:
+            save_action = request.POST.get("save_action", "finalize")
+            if save_action not in {"pending", "finalize"}:
+                raise ValueError("Unknown save action.")
+            with db_transaction.atomic():
+                route_name = request.POST.get("route_name", "").strip()
+                route = Route.objects.filter(route_name__iexact=route_name, active=True).first()
+                if not route_name and not request.POST.get("dealer"):
+                    raise ValueError("Select or enter a route.")
+                if route_name and not route:
+                    route = Route(
+                        route_name=route_name,
+                        weekday=expected_weekday or Route.SATURDAY,
+                    )
+                    route.full_clean()
+                    route.save()
+                transaction_date = date.fromisoformat(request.POST["date"])
+                legacy_invoice_number = request.POST.get("invoice_number", "").strip() if not route_name and request.POST.get("dealer") else ""
+                sale = None
+                for attempt in range(5):
+                    try:
+                        with db_transaction.atomic():
+                            sale = SalesTransaction.objects.create(
+                                route=route,
+                                route_day=route.weekday if route else "",
+                                status=SalesTransaction.Status.PENDING if save_action == "pending" else SalesTransaction.Status.FINALIZED,
+                                dealer_id=request.POST.get("dealer") or None,
+                                date=transaction_date,
+                                invoice_number=legacy_invoice_number,
+                                notes=request.POST.get("notes", "").strip(),
+                            )
+                        break
+                    except IntegrityError:
+                        if legacy_invoice_number or attempt == 4:
+                            raise
+                product_ids = request.POST.getlist("product_id")
+                order_quantities = request.POST.getlist("order_quantity")
+                return_quantities = request.POST.getlist("return_quantity")
+                foc_quantities = request.POST.getlist("foc_quantity")
+                free_product_quantities = request.POST.getlist("free_product_quantity")
+                discounts = request.POST.getlist("discount")
+                damage_quantities = request.POST.getlist("damage_quantity")
+                def row_value(values, index):
+                    return values[index] if index < len(values) else ""
+
+                for index, product_id in enumerate(product_ids):
+                    if not product_id:
+                        continue
+                    try:
+                        product = Product.objects.get(pk=product_id, active=True)
+                    except (Product.DoesNotExist, ValueError) as exc:
+                        raise ValueError("Select an active product from Product Setup.") from exc
+                    item = SalesItem.objects.create(
+                        transaction=sale,
+                        product=product,
+                        order_quantity=row_value(order_quantities, index) or 0,
+                        return_quantity=row_value(return_quantities, index) or 0,
+                        foc_quantity=row_value(foc_quantities, index) or 0,
+                        free_product_quantity=row_value(free_product_quantities, index) or 0,
+                        damage_quantity=row_value(damage_quantities, index) or 0,
+                        discount=row_value(discounts, index) or 0,
+                    )
+                    damage_quantity = Decimal(row_value(damage_quantities, index) or 0)
+                    if damage_quantity > 0:
+                        from inventory.models import Damage
+
+                        damage = Damage.objects.create(
+                            date=sale.date,
+                            product=item.product,
+                            quantity=damage_quantity,
+                            related_transaction=sale,
+                            reason="Recorded during daily sales entry",
+                        )
+                        StockTransaction.record_damage(damage)
+                    StockTransaction.record_sale_item(item)
+                    StockTransaction.record_return_item(item)
+
+                currency_count = update_currency_count_from_request(request, CurrencyCount(transaction=sale))
+                PaymentReconciliation.objects.create(
+                    transaction=sale,
+                    cash=request.POST.get("cash") or 0,
+                    expenses=request.POST.get("expenses") or 0,
+                    credit=request.POST.get("credit") or 0,
+                    discount=request.POST.get("payment_discount") or 0,
+                    others=request.POST.get("others") or 0,
+                )
+                reconciliation = PaymentReconciliation.objects.get(transaction=sale)
+                reconciliation.cash = currency_count.total_cash
+                reconciliation.save()
+                if save_action == "pending":
+                    return redirect(f"{reverse('pending-sales')}?date={sale.date.isoformat()}")
+                return redirect("daily-summary-date", sale.date.isoformat())
+        except Exception as exc:
+            logger.exception("Daily Sales save failed")
+            error = str(exc)
+    # Keep the route-day choices explicit in the form context. The template
+    # renders this list directly, so relying on a broad locals() context makes
+    # an empty dropdown too easy to reintroduce during future view changes.
+    context = {
+        "routes": routes,
+        "products": products,
+        "product_groups": product_groups,
+        "today": selected_date,
+        "selected_day": selected_day,
+        "preview_invoice_number": SalesTransaction.next_invoice_number(selected_date),
+        "route_name_value": request.POST.get("route_name", "").strip() if request.method == "POST" else (default_route.route_name if default_route else ""),
+        "default_route": default_route,
+        "route_suggestions": route_suggestions,
+        "weekdays": Route.WEEKDAY_CHOICES,
+        "pending_count": SalesTransaction.objects.filter(status=SalesTransaction.Status.PENDING, date=selected_date).count(),
+        "error": error,
+    }
+    context.update(
+        currency_count_context(
+            form_data=request.POST if request.method == "POST" else None,
+        )
+    )
+    return render(request, "sales/entry.html", context)
+
+
+def pending_sales(request):
+    try:
+        selected_date = date.fromisoformat(request.GET.get("date", ""))
+    except ValueError:
+        selected_date = date.today()
+    pending_transactions = (
+        SalesTransaction.objects.filter(status=SalesTransaction.Status.PENDING, date=selected_date)
+        .select_related("route", "dealer")
+        .annotate(item_count=Count("items"))
+        .order_by("-updated_at", "-created_at")
+    )
+    return render(
+        request,
+        "sales/pending_list.html",
+        {
+            "pending_transactions": pending_transactions,
+            "selected_date": selected_date,
+        },
+    )
+
+
+def invoice_preview(request):
+    try:
+        selected_date = date.fromisoformat(request.GET.get("date", ""))
+    except ValueError:
+        selected_date = date.today()
+    return JsonResponse({"invoice_number": SalesTransaction.next_invoice_number(selected_date)})
+
+
+def daily_summary(request, report_date=None):
+    today = date.today()
+    date_filter = report_date or request.GET.get("date")
+    try:
+        selected_date = date.fromisoformat(date_filter) if date_filter else None
+    except ValueError:
+        selected_date = None
+    try:
+        selected_year = int(request.GET.get("year", selected_date.year if selected_date else today.year))
+        selected_month = int(request.GET.get("month", selected_date.month if selected_date else today.month))
+    except ValueError:
+        selected_year, selected_month = today.year, today.month
+    route_id = request.GET.get("route", "")
+    transactions = SalesTransaction.objects.filter(status=SalesTransaction.Status.FINALIZED, date=selected_date) if selected_date else SalesTransaction.objects.filter(status=SalesTransaction.Status.FINALIZED, date__year=selected_year, date__month=selected_month)
+    if route_id:
+        transactions = transactions.filter(route_id=route_id)
+    transactions = transactions.select_related("dealer", "route").prefetch_related("items__product", "damages", "reconciliation")
+    totals = {
+        "orders": transactions.count(),
+        "order": sum((sale.order_total for sale in transactions), Decimal("0")),
+        "sales": sum((sale.sale_total for sale in transactions), Decimal("0")),
+        "returns": sum((sale.return_total for sale in transactions), Decimal("0")),
+        "damage": sum((sale.damage_total for sale in transactions), Decimal("0")),
+        "discount": sum((sale.total_discount for sale in transactions), Decimal("0")),
+        "free_product": sum((sale.free_product_total for sale in transactions), Decimal("0")),
+        "grand_total": sum((sale.grand_total_sale for sale in transactions), Decimal("0")),
+        "net": sum((sale.net_sale for sale in transactions), Decimal("0")),
+        "cash": sum((getattr(getattr(sale, "reconciliation", None), "cash", Decimal("0")) for sale in transactions), Decimal("0")),
+        "expenses": sum((getattr(getattr(sale, "reconciliation", None), "expenses", Decimal("0")) for sale in transactions), Decimal("0")),
+        "credit": sum((getattr(getattr(sale, "reconciliation", None), "credit", Decimal("0")) for sale in transactions), Decimal("0")),
+        "payment_discount": sum((getattr(getattr(sale, "reconciliation", None), "discount", Decimal("0")) for sale in transactions), Decimal("0")),
+        "others": sum((getattr(getattr(sale, "reconciliation", None), "others", Decimal("0")) for sale in transactions), Decimal("0")),
+        "shortage": sum((getattr(getattr(sale, "reconciliation", None), "shortage", sale.grand_total_sale) for sale in transactions), Decimal("0")),
+        "order_qty": sum((sum((item.order_quantity for item in sale.items.all()), Decimal("0")) for sale in transactions), Decimal("0")),
+        "return_qty": sum((sum((item.return_quantity for item in sale.items.all()), Decimal("0")) for sale in transactions), Decimal("0")),
+        "damage_qty": sum((sum((damage.quantity for damage in sale.damages.all()), Decimal("0")) for sale in transactions), Decimal("0")),
+    }
+    daily_records = [
+        {
+            "id": sale.id,
+            "date": sale.date,
+            "invoice": sale.invoice_number,
+            "route": sale.route_display,
+            "status": sale.get_status_display(),
+            "sent_quantity": sale.sent_quantity_total,
+            "sent_pieces": sale.sent_pieces_total,
+            "sale_quantity": sale.sale_quantity_total,
+            "sale_pieces": sale.sale_pieces_total,
+            "return_quantity": sale.return_quantity_total,
+            "return_pieces": sale.return_pieces_total,
+            "damage_quantity": sale.damage_quantity_total,
+            "damage_pieces": sale.damage_pieces_total,
+            "sales": sale.sale_total,
+            "returns": sale.return_total,
+            "damage": sale.damage_total,
+            "discount": sale.total_discount,
+            "shortage": getattr(getattr(sale, "reconciliation", None), "shortage", sale.grand_total_sale),
+            "net": sale.net_sale,
+        }
+        for sale in transactions
+    ]
+    product_details = {}
+    for sale in transactions:
+        for item in sale.items.all():
+            # Use the line snapshot, rather than the mutable Product Setup
+            # record, so reports remain a faithful invoice history.
+            key = (item.product_id, item.product_name_snapshot or item.product.name, item.category_snapshot)
+            detail = product_details.setdefault(
+                key,
+                {
+                    "name": key[1],
+                    "category": key[2],
+                    "sale": Decimal("0"),
+                    "pieces": Decimal("0"),
+                    "value": Decimal("0"),
+                },
+            )
+            detail["sale"] += item.sale_quantity
+            detail["pieces"] += item.sale_quantity * item.ctn_size_snapshot
+            detail["value"] += item.sale_value
+    export_query = f"?year={selected_year}&month={selected_month}{('&route=' + route_id) if route_id else ''}"
+    excel_export_url = f"/reports/daily/export/?date={selected_date}" if selected_date else f"/reports/monthly/export/{export_query}"
+    pdf_export_url = f"/reports/monthly/export/pdf/{export_query}"
+    return render(request, "sales/daily_summary.html", {"transactions": transactions, "daily_records": daily_records, "product_details": sorted(product_details.values(), key=lambda detail: (detail["category"], detail["name"].lower())), "totals": totals, "selected_date": selected_date, "selected_year": selected_year, "selected_month": selected_month, "selected_route_id": route_id, "routes": Route.objects.filter(active=True), "month_options": [(number, month_name[number]) for number in range(1, 13)], "excel_export_url": excel_export_url, "pdf_export_url": pdf_export_url, "period_label": selected_date.strftime("%d %B %Y") if selected_date else f"{month_name[selected_month]} {selected_year}"})
+
+
+def sales_invoice_detail(request, pk):
+    """Render a finalized invoice as report history, never as an edit form."""
+    transaction = get_object_or_404(
+        SalesTransaction.objects.filter(status=SalesTransaction.Status.FINALIZED)
+        .select_related("route", "dealer", "reconciliation")
+        .prefetch_related("items__product", "damages"),
+        pk=pk,
+    )
+    currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
+    return render(
+        request,
+        "sales/invoice_detail.html",
+        {
+            "transaction": transaction,
+            "reconciliation": getattr(transaction, "reconciliation", None),
+            **currency_count_context(currency_count),
+        },
+    )
+
+
+def sales_edit(request, pk):
+    transaction = get_object_or_404(SalesTransaction.objects.select_related("route").prefetch_related("items", "reconciliation"), pk=pk)
+    template_name = "sales/pending_edit.html" if transaction.status == SalesTransaction.Status.PENDING else "sales/edit.html"
+    if request.method == "POST":
+        try:
+            with db_transaction.atomic():
+                transaction = SalesTransaction.objects.select_for_update().get(pk=pk)
+                save_action = request.POST.get("save_action", "pending" if transaction.status == SalesTransaction.Status.PENDING else "finalize")
+                if save_action not in {"pending", "finalize"}:
+                    raise ValueError("Unknown save action.")
+                for item in transaction.items.all():
+                    item.order_quantity = request.POST.get(f"order_quantity_{item.pk}") or item.order_quantity
+                    item.return_quantity = request.POST.get(f"return_quantity_{item.pk}") or item.return_quantity
+                    # FOC quantity is retained for older invoices even though
+                    # the sheet now presents the product's FOC price column.
+                    item.foc_quantity = request.POST.get(f"foc_quantity_{item.pk}") or item.foc_quantity
+                    item.free_product_quantity = request.POST.get(f"free_product_quantity_{item.pk}") or item.free_product_quantity
+                    item.damage_quantity = request.POST.get(f"damage_quantity_{item.pk}") or item.damage_quantity
+                    item.discount = request.POST.get(f"discount_{item.pk}") or item.discount
+                    item.dealer_price_snapshot = request.POST.get(f"dealer_price_{item.pk}") or item.dealer_price_snapshot
+                    item.trade_price_snapshot = request.POST.get(f"trade_price_{item.pk}") or item.trade_price_snapshot
+                    item.foc_snapshot = request.POST.get(f"foc_price_{item.pk}") or item.foc_snapshot
+                    item.sale_price_snapshot = request.POST.get(f"sale_price_{item.pk}") or item.sale_price_snapshot
+                    item.save()
+                    from inventory.models import Damage
+
+                    damage = Damage.objects.filter(related_transaction=transaction, product=item.product).first()
+                    if damage:
+                        damage.quantity = item.damage_quantity
+                        damage.save()
+                    elif item.damage_quantity > 0:
+                        Damage.objects.create(date=transaction.date, product=item.product, quantity=item.damage_quantity, related_transaction=transaction, reason="Updated during invoice edit")
+                reconciliation, _ = PaymentReconciliation.objects.get_or_create(transaction=transaction)
+                for field in ("cash", "expenses", "credit", "discount", "others"):
+                    setattr(reconciliation, field, request.POST.get(field) or 0)
+                reconciliation.save()
+                currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
+                if currency_count or request.POST.get("currency_count_active") == "1":
+                    currency_count = update_currency_count_from_request(
+                        request, currency_count or CurrencyCount(transaction=transaction)
+                    )
+                    reconciliation.cash = currency_count.total_cash
+                    reconciliation.save()
+                transaction.notes = request.POST.get("notes", "").strip()
+                if transaction.status == SalesTransaction.Status.PENDING:
+                    if save_action == "finalize" and not transaction.items.exists():
+                        raise ValueError("Add at least one product before final save.")
+                    transaction.status = SalesTransaction.Status.FINALIZED if save_action == "finalize" else SalesTransaction.Status.PENDING
+                else:
+                    transaction.status = SalesTransaction.Status.FINALIZED
+                transaction.save(update_fields=["notes", "status", "updated_at"])
+            if transaction.status == SalesTransaction.Status.PENDING:
+                return redirect(f"{reverse('pending-sales')}?date={transaction.date.isoformat()}")
+            return redirect("daily-summary-date", transaction.date.isoformat())
+        except Exception as exc:
+            logger.exception("Daily Sales invoice edit failed")
+            transaction = SalesTransaction.objects.select_related("route").prefetch_related("items", "reconciliation").get(pk=pk)
+            currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
+            template_name = "sales/pending_edit.html" if transaction.status == SalesTransaction.Status.PENDING else "sales/edit.html"
+            reconciliation = PaymentReconciliation.objects.filter(transaction=transaction).first()
+            return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "error": str(exc), **currency_count_context(currency_count, request.POST)})
+    currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
+    reconciliation = PaymentReconciliation.objects.filter(transaction=transaction).first()
+    return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, **currency_count_context(currency_count)})
+
+
+def product_history(request, product_id):
+    from django.shortcuts import get_object_or_404
+
+    product = get_object_or_404(Product, pk=product_id)
+    items = SalesItem.objects.filter(product=product).select_related("transaction", "transaction__route").order_by("transaction__date", "transaction__created_at")
+    return render(request, "sales/product_history.html", {
+        "product": product,
+        "items": items,
+        "totals": {
+            "order": sum((item.order_quantity for item in items), Decimal("0")),
+            "return": sum((item.return_quantity for item in items), Decimal("0")),
+            "sale": sum((item.sale_quantity for item in items), Decimal("0")),
+            "damage": sum((item.damage_quantity for item in items), Decimal("0")),
+            "value": sum((item.sale_value for item in items), Decimal("0")),
+        },
+    })

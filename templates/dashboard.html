@@ -1,0 +1,13 @@
+{% extends "base_app.html" %}
+{% block title %}Dashboard | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<header class="app-header"><div><p class="page-kicker">Operations overview</p><h1>Dashboard</h1></div><span class="date-chip">{{ today_date|date:"d M Y" }}</span></header>
+<section class="summary-section"><div class="section-heading"><h2>Today</h2><span>Live transaction snapshot</span></div><div class="metric-grid">
+    <div class="metric-card metric-primary"><span>Sales</span><strong>{{ today.sales|floatformat:2 }}</strong><small>Gross sales value</small></div>
+    <div class="metric-card"><span>Orders</span><strong>{{ today.orders }}</strong><small>Transactions recorded</small></div>
+    <div class="metric-card"><span>Returns</span><strong>{{ today.returns|floatformat:2 }}</strong><small>Returned value</small></div>
+    <div class="metric-card"><span>Damage</span><strong>{{ today.damage|floatformat:2 }}</strong><small>Recorded damage value</small></div>
+    <div class="metric-card"><span>Discount</span><strong>{{ today.discount|floatformat:2 }}</strong><small>Discount and FOC value</small></div>
+</div></section>
+<section class="monthly-panel"><div><p class="page-kicker">Current month</p><h2>Monthly performance</h2><p class="panel-copy">A running view of sales activity and deductions across all routes.</p></div><div class="monthly-metrics"><div><span>Sales</span><b>{{ monthly.sales|floatformat:2 }}</b></div><div><span>Returns</span><b>{{ monthly.returns|floatformat:2 }}</b></div><div><span>Damage</span><b>{{ monthly.damage|floatformat:2 }}</b></div><div><span>Net sale</span><b>{{ monthly.net|floatformat:2 }}</b></div></div></section>
+{% endblock %}
