@@ -20,7 +20,6 @@
                 <a href="{% url 'product-setup' %}"><span class="nav-number">02</span><span class="nav-label">Product Setup</span></a>
                 <a href="{% url 'daily-sales-page' %}"><span class="nav-number">03</span><span class="nav-label">Daily Sales</span></a>
                 <a href="{% url 'daily-summary-page' %}"><span class="nav-number">04</span><span class="nav-label">Monthly Summary</span></a>
-                <a href="{% url 'monthly-export' %}"><span class="nav-number">05</span><span class="nav-label">Export</span></a>
                 <a href="{% url 'godown-stock' %}"><span class="nav-number">06</span><span class="nav-label">Godown Stock</span></a>
             </nav>
             <a class="back-home" href="{% url 'home' %}"><span class="back-home-label">Return to landing</span><b>&#8599;</b></a>
@@ -28,5 +27,6 @@
         <main class="app-main">{% block content %}{% endblock %}</main>
     </div>
     <script src="{% static 'js/sidebar.js' %}"></script>
+    <script src="{% static 'js/numeric_inputs.js' %}"></script>
 </body>
 </html>

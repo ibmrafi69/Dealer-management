@@ -1,4 +1,4 @@
-from django.db import models
+﻿from django.db import models
 
 from dealers.models import Dealer
 from products.models import Product
@@ -6,7 +6,12 @@ from products.models import Product
 
 class Damage(models.Model):
     date = models.DateField()
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="damages")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="damages")
+    product_id_snapshot = models.BigIntegerField(null=True, blank=True, editable=False)
+    product_name_snapshot = models.CharField(max_length=160, blank=True)
+    category_snapshot = models.CharField(max_length=20, blank=True)
+    ctn_size_snapshot = models.PositiveIntegerField(default=1)
+    unit_price_snapshot = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     quantity = models.DecimalField(max_digits=12, decimal_places=2)
     value = models.DecimalField(max_digits=14, decimal_places=2, default=0, editable=False)
     reason = models.CharField(max_length=255, blank=True)
@@ -18,14 +23,22 @@ class Damage(models.Model):
     def save(self, *args, **kwargs):
         if self.quantity < 0:
             raise ValueError("Damage quantity cannot be negative.")
-        # Damage recorded against an invoice must retain that invoice's sale
-        # price, even after the product price is changed in Product Setup.
-        # Standalone inventory damage retains the existing dealer-price rule.
-        price = self.product.dealer_price
-        if self.related_transaction_id:
-            item = self.related_transaction.items.filter(product_id=self.product_id).only("sale_price_snapshot").first()
+        price = self.unit_price_snapshot
+        if self.product_id:
+            product = self.product
+            if self._state.adding:
+                self.product_id_snapshot = product.pk
+                self.product_name_snapshot = product.name
+                self.category_snapshot = product.category
+                self.ctn_size_snapshot = product.ctn_size
+            price = product.dealer_price
+        if self.related_transaction_id and self.product_id_snapshot is not None:
+            item = self.related_transaction.items.filter(
+                product_id_snapshot=self.product_id_snapshot
+            ).only("sale_price_snapshot").first()
             if item:
                 price = item.sale_price_snapshot
+        self.unit_price_snapshot = price
         self.value = self.quantity * price
         return super().save(*args, **kwargs)
 
@@ -43,13 +56,26 @@ class StockTransaction(models.Model):
         (DAMAGE, "Damage"),
         (ADJUSTMENT, "Adjustment"),
     )
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="stock_transactions")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="stock_transactions")
+    product_id_snapshot = models.BigIntegerField(null=True, blank=True, editable=False)
+    product_name_snapshot = models.CharField(max_length=160, blank=True)
+    category_snapshot = models.CharField(max_length=20, blank=True)
+    ctn_size_snapshot = models.PositiveIntegerField(default=1)
     dealer = models.ForeignKey(Dealer, on_delete=models.PROTECT, null=True, blank=True, related_name="stock_transactions")
     date = models.DateField()
     transaction_type = models.CharField(max_length=20, choices=TRANSACTION_TYPES)
     quantity = models.DecimalField(max_digits=12, decimal_places=2)
     reference = models.CharField(max_length=120, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and self.product_id:
+            product = self.product
+            self.product_id_snapshot = product.pk
+            self.product_name_snapshot = product.name
+            self.category_snapshot = product.category
+            self.ctn_size_snapshot = product.ctn_size
+        return super().save(*args, **kwargs)
 
     class Meta:
         ordering = ["-date", "-created_at"]

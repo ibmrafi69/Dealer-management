@@ -25,14 +25,12 @@ def _display_number(value):
 
 def stock_display(total_pieces, pieces_per_ctn):
     """Convert the source-of-truth total pieces into the requested CTN + PCS display."""
-    total_pieces = Decimal(total_pieces or 0)
+    # Godown stock has no assumed opening balance. Older invoices may predate
+    # the receipt ledger, but they must never make the usable balance negative.
+    total_pieces = max(Decimal(total_pieces or 0), ZERO)
     per_ctn = Decimal(pieces_per_ctn or 1)
-    prefix = ""
-    if total_pieces < 0:
-        prefix = "Short "
-        total_pieces = abs(total_pieces)
     cartons, pieces = divmod(total_pieces, per_ctn)
-    return f"{prefix}{_display_number(cartons)} CTN {_display_number(pieces)} PCS"
+    return f"{_display_number(cartons)} CTN {_display_number(pieces)} PCS"
 
 
 def _finalized_items(product_ids):
@@ -46,25 +44,52 @@ def _finalized_items(product_ids):
     )
 
 
-def stock_rows(products):
-    """Return calculated balances. Receipts and finalized invoices remain the only sources of truth."""
+def stock_balances(products):
+    """Return usable piece balances without inventing opening stock.
+
+    Each product begins at zero. Receipts are the source of stock; a finalized
+    dispatch can only consume stock already present in the ledger. This keeps
+    pre-ledger historical invoices from producing a negative balance or
+    consuming stock received later.
+    """
     product_ids = [product.pk for product in products]
-    balances = defaultdict(lambda: ZERO)
+    events_by_product = defaultdict(list)
     if not product_ids:
-        return []
+        return {}
 
     for receipt in GodownStockReceipt.objects.filter(product_id__in=product_ids):
-        balances[receipt.product_id] += Decimal(receipt.total_pieces)
+        events_by_product[receipt.product_id].append(
+            (receipt.received_at, (0, receipt.pk), Decimal(receipt.total_pieces))
+        )
 
     for item in _finalized_items(product_ids):
         pieces_per_ctn = item.ctn_size_snapshot or item.product.ctn_size
-        # order_quantity is the dispatched quantity. A return adds usable stock
-        # back. SalesItem already treats damage as part of that dispatch
-        # (sale = order - return - damage), so subtracting damage again would
-        # double-count the loss after invoice edits.
-        balances[item.product_id] -= _piece_quantity(item.order_quantity, pieces_per_ctn)
-        balances[item.product_id] += _piece_quantity(item.return_quantity, pieces_per_ctn)
+        occurred_at = _invoice_datetime(item)
+        dispatch = _piece_quantity(item.order_quantity, pieces_per_ctn)
+        returned = _piece_quantity(item.return_quantity, pieces_per_ctn)
+        events_by_product[item.product_id].append((occurred_at, (1, item.pk), -dispatch))
+        if returned:
+            events_by_product[item.product_id].append((occurred_at, (2, item.pk), returned))
 
+    balances = {}
+    for product in products:
+        balance = ZERO
+        for _, _, movement in sorted(events_by_product[product.pk]):
+            balance = max(ZERO, balance + movement)
+        balances[product.pk] = balance
+    return balances
+
+
+def available_stock_pieces(product):
+    """Return the current non-negative usable stock for one Product."""
+    return stock_balances([product]).get(product.pk, ZERO)
+
+
+def stock_rows(products):
+    """Return calculated balances. Receipts and finalized invoices remain the only sources of truth."""
+    if not products:
+        return []
+    balances = stock_balances(products)
     rows = []
     for product in products:
         balance = balances[product.pk]
@@ -73,7 +98,7 @@ def stock_rows(products):
                 "product": product,
                 "balance_pieces": balance,
                 "current_stock": stock_display(balance, product.ctn_size),
-                "status": "In stock" if balance > 0 else "Out of stock" if balance == 0 else "Stock deficit",
+                "status": "In stock" if balance > 0 else "Out of stock",
             }
         )
     return rows
@@ -149,7 +174,7 @@ def stock_history(product):
     events.sort(key=lambda event: (event["occurred_at"], event["order"]))
     balance = ZERO
     for event in events:
-        balance += event["in_pieces"] - event["out_pieces"]
+        balance = max(ZERO, balance + event["in_pieces"] - event["out_pieces"])
         event["balance_pieces"] = balance
         event["in_display"] = _display_number(event["in_pieces"]) if event["in_pieces"] else "-"
         event["out_display"] = _display_number(event["out_pieces"]) if event["out_pieces"] else "-"

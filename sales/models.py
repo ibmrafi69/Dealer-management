@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -138,18 +138,18 @@ class SalesTransaction(models.Model):
     def damage_total(self):
         item_damages = [item for item in self.items.all() if item.damage_quantity]
         item_damage_total = sum((item.damage_value for item in item_damages), Decimal("0"))
-        item_damage_product_ids = {item.product_id for item in item_damages}
+        item_damage_product_ids = {item.product_id_snapshot if item.product_id_snapshot is not None else item.product_id for item in item_damages}
         unitemized_damage_total = sum(
-            (damage.value for damage in self.damages.all() if damage.product_id not in item_damage_product_ids),
+            (damage.value for damage in self.damages.all() if (damage.product_id_snapshot if damage.product_id_snapshot is not None else damage.product_id) not in item_damage_product_ids),
             Decimal("0"),
         )
         return item_damage_total + unitemized_damage_total
 
     @property
     def unitemized_damage_total(self):
-        item_damage_product_ids = {item.product_id for item in self.items.all() if item.damage_quantity}
+        item_damage_product_ids = {item.product_id_snapshot if item.product_id_snapshot is not None else item.product_id for item in self.items.all() if item.damage_quantity}
         return sum(
-            (damage.value for damage in self.damages.all() if damage.product_id not in item_damage_product_ids),
+            (damage.value for damage in self.damages.all() if (damage.product_id_snapshot if damage.product_id_snapshot is not None else damage.product_id) not in item_damage_product_ids),
             Decimal("0"),
         )
 
@@ -201,7 +201,8 @@ class CurrencyCount(models.Model):
         return super().save(*args, **kwargs)
 class SalesItem(models.Model):
     transaction = models.ForeignKey(SalesTransaction, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="sales_items")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="sales_items")
+    product_id_snapshot = models.BigIntegerField(null=True, blank=True, editable=False)
     order_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     return_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     sale_quantity = models.DecimalField(max_digits=12, decimal_places=2, default=0, editable=False)
@@ -263,6 +264,7 @@ class SalesItem(models.Model):
         self.sale_price_snapshot = Decimal(str(self.sale_price_snapshot or 0))
         if self._state.adding and self.product_id:
             product = self.product
+            self.product_id_snapshot = product.pk
             self.product_name_snapshot = product.name
             self.category_snapshot = product.category
             self.ctn_size_snapshot = product.ctn_size

@@ -1,4 +1,4 @@
-from decimal import Decimal
+﻿from decimal import Decimal
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -86,8 +86,21 @@ class ProductPriceHistory(models.Model):
 	TRADE_PRICE = "TRADE_PRICE"
 	SALE_PRICE = "SALE_PRICE"
 	PRICE_TYPES = ((DEALER_PRICE, "Dealer price"), (TRADE_PRICE, "Trade price"), (SALE_PRICE, "Sale price"))
-	product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="price_history")
+	product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="price_history")
+	product_id_snapshot = models.BigIntegerField(null=True, blank=True, editable=False)
+	product_name_snapshot = models.CharField(max_length=160, blank=True)
+	category_snapshot = models.CharField(max_length=20, blank=True)
+	ctn_size_snapshot = models.PositiveIntegerField(default=1)
 	old_price = models.DecimalField(max_digits=12, decimal_places=2)
 	new_price = models.DecimalField(max_digits=12, decimal_places=2)
 	price_type = models.CharField(max_length=20, choices=PRICE_TYPES)
 	effective_at = models.DateTimeField(auto_now_add=True)
+
+	def save(self, *args, **kwargs):
+		if self._state.adding and self.product_id:
+			product = self.product
+			self.product_id_snapshot = product.pk
+			self.product_name_snapshot = product.name
+			self.category_snapshot = product.category
+			self.ctn_size_snapshot = product.ctn_size
+		return super().save(*args, **kwargs)

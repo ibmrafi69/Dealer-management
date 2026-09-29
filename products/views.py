@@ -1,4 +1,4 @@
-from datetime import date
+﻿from datetime import date
 
 from django.contrib import messages
 from django.core.paginator import Paginator
@@ -71,21 +71,15 @@ def product_setup(request):
 	page_obj = Paginator(products, 20).get_page(request.GET.get("page"))
 	filter_params = request.GET.copy()
 	filter_params.pop("page", None)
-	referenced_ids = set(Product.objects.filter(Q(sales_items__isnull=False) | Q(damages__isnull=False) | Q(stock_transactions__isnull=False) | Q(godown_stock_receipts__isnull=False)).values_list("id", flat=True))
-	context = {"products": page_obj.object_list, "page_obj": page_obj, "query": query, "category_filter": category_filter, "status_filter": status_filter, "categories": all_categories, "filter_query": filter_params.urlencode(), "referenced_ids": referenced_ids, "editing": None}
+	context = {"products": page_obj.object_list, "page_obj": page_obj, "query": query, "category_filter": category_filter, "status_filter": status_filter, "categories": all_categories, "filter_query": filter_params.urlencode(), "editing": None}
 	if request.method == "POST":
 		action = request.POST.get("action")
 		if action in ("toggle", "delete"):
 			product = Product.objects.get(pk=request.POST["product_id"])
-			has_history = product.sales_items.exists() or product.damages.exists() or product.stock_transactions.exists() or product.godown_stock_receipts.exists()
-			if action == "delete" and not has_history:
-				product.price_history.all().delete()
+			if action == "delete":
+				product_name = product.name
 				product.delete()
-				messages.success(request, f"{product.name} was deleted.")
-			elif action == "delete" and has_history:
-				product.active = False
-				product.save(update_fields=["active"])
-				messages.warning(request, f"{product.name} has historical transactions and was deactivated instead of deleted.")
+				messages.success(request, f"{product_name} was deleted.")
 			else:
 				product.active = not product.active
 				product.save(update_fields=["active"])
@@ -112,7 +106,7 @@ def product_setup(request):
 			product.full_clean()
 			product.save()
 		except Exception as exc:
-			context.update({"editing": product, "error": str(exc)})
+			context.update({"editing": product if product.pk else None, "error": str(exc)})
 			return render(request, "products/setup.html", context)
 		messages.success(request, f"{product.name} was {'updated' if product_id else 'added'} successfully.")
 		return redirect("product-setup")

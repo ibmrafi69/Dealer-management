@@ -1,6 +1,6 @@
 from calendar import month_name
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import logging
 
 from django.db import IntegrityError
@@ -11,6 +11,7 @@ from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect, render
 
 from dealers.models import Route
+from godown_stock.services import stock_balances, stock_display
 from inventory.models import StockTransaction
 from products.models import Product
 
@@ -53,13 +54,53 @@ def update_currency_count_from_request(request, currency_count):
     currency_count.save()
     return currency_count
 
+def _validate_stock_requirements(requirements):
+    """Reject a final Daily Sales dispatch that exceeds usable Godown Stock."""
+    requested_pieces = {}
+    products_by_id = {}
+    for product, quantity in requirements:
+        try:
+            quantity = Decimal(str(quantity or 0))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValueError("Enter a valid Daily Sales quantity.") from exc
+        if quantity < 0:
+            raise ValueError("Daily Sales quantity cannot be negative.")
+        products_by_id[product.pk] = product
+        requested_pieces[product.pk] = requested_pieces.get(product.pk, Decimal("0")) + (
+            quantity * Decimal(product.ctn_size)
+        )
+
+    balances = stock_balances(list(products_by_id.values()))
+    for product_id, requested in requested_pieces.items():
+        # A selected zero-quantity line does not dispatch anything, so it must
+        # not be rejected merely because this product is currently out of stock.
+        if requested == 0:
+            continue
+        product = products_by_id[product_id]
+        available = balances.get(product_id, Decimal("0"))
+        if requested > available:
+            raise ValueError(
+                f"Insufficient Godown Stock for {product.name}. "
+                f"Available: {stock_display(available, product.ctn_size)}."
+            )
+
+
 def sales_entry(request):
     routes = list(Route.objects.filter(active=True))
     weekday_order = {weekday: index for index, weekday in enumerate(Route.WEEKDAY_ORDER)}
     routes.sort(key=lambda route: (weekday_order.get(route.weekday, len(weekday_order)), route.route_name.lower()))
-    products = list(Product.objects.filter(active=True))
+    all_products = list(Product.objects.filter(active=True))
     category_order = {category: index for index, category in enumerate(Product.CATEGORY_ORDER)}
-    products.sort(key=lambda product: (category_order.get(product.category, len(category_order)), product.name.lower()))
+    all_products.sort(key=lambda product: (category_order.get(product.category, len(category_order)), product.name.lower()))
+    balances = stock_balances(all_products)
+    # Pending invoices are deliberately not reservations. Keep every active
+    # Product Setup item selectable; validation happens only when the user
+    # finalizes the invoice, after all of its product lines are considered.
+    products = all_products
+    for product in all_products:
+        available = balances.get(product.pk, Decimal("0"))
+        product.available_stock_pieces = available
+        product.available_stock_display = stock_display(available, product.ctn_size)
     product_groups = [(category, [product for product in products if product.category == category]) for category in Product.CATEGORY_ORDER]
     selected_date = request.POST.get("date") if request.method == "POST" else request.GET.get("date")
     try:
@@ -124,6 +165,7 @@ def sales_entry(request):
                 def row_value(values, index):
                     return values[index] if index < len(values) else ""
 
+                selected_items = []
                 for index, product_id in enumerate(product_ids):
                     if not product_id:
                         continue
@@ -131,6 +173,14 @@ def sales_entry(request):
                         product = Product.objects.get(pk=product_id, active=True)
                     except (Product.DoesNotExist, ValueError) as exc:
                         raise ValueError("Select an active product from Product Setup.") from exc
+                    selected_items.append((index, product))
+
+                if save_action == "finalize":
+                    _validate_stock_requirements(
+                        (product, row_value(order_quantities, index)) for index, product in selected_items
+                    )
+
+                for index, product in selected_items:
                     item = SalesItem.objects.create(
                         transaction=sale,
                         product=product,
@@ -228,6 +278,23 @@ def invoice_preview(request):
     return JsonResponse({"invoice_number": SalesTransaction.next_invoice_number(selected_date)})
 
 
+def _finalized_summary_transactions(selected_date, selected_year, selected_month, route_id):
+    filters = {"status": SalesTransaction.Status.FINALIZED}
+    if selected_date:
+        filters["date"] = selected_date
+    else:
+        filters.update(date__year=selected_year, date__month=selected_month)
+    transactions = (
+        SalesTransaction.objects.filter(**filters)
+        .select_related("dealer", "route")
+        .prefetch_related("items__product", "damages", "reconciliation")
+        .order_by("-date", "-created_at", "-pk")
+    )
+    if route_id:
+        transactions = transactions.filter(route_id=route_id)
+    return transactions
+
+
 def daily_summary(request, report_date=None):
     today = date.today()
     date_filter = report_date or request.GET.get("date")
@@ -235,16 +302,17 @@ def daily_summary(request, report_date=None):
         selected_date = date.fromisoformat(date_filter) if date_filter else None
     except ValueError:
         selected_date = None
+    default_year = selected_date.year if selected_date else today.year
+    default_month = selected_date.month if selected_date else today.month
     try:
-        selected_year = int(request.GET.get("year", selected_date.year if selected_date else today.year))
-        selected_month = int(request.GET.get("month", selected_date.month if selected_date else today.month))
+        selected_year = int(request.GET.get("year", default_year))
+        selected_month = int(request.GET.get("month", default_month))
     except ValueError:
-        selected_year, selected_month = today.year, today.month
+        selected_year, selected_month = default_year, default_month
+    if not (1 <= selected_year <= 9999 and 1 <= selected_month <= 12):
+        selected_year, selected_month = default_year, default_month
     route_id = request.GET.get("route", "")
-    transactions = SalesTransaction.objects.filter(status=SalesTransaction.Status.FINALIZED, date=selected_date) if selected_date else SalesTransaction.objects.filter(status=SalesTransaction.Status.FINALIZED, date__year=selected_year, date__month=selected_month)
-    if route_id:
-        transactions = transactions.filter(route_id=route_id)
-    transactions = transactions.select_related("dealer", "route").prefetch_related("items__product", "damages", "reconciliation")
+    transactions = _finalized_summary_transactions(selected_date, selected_year, selected_month, route_id)
     totals = {
         "orders": transactions.count(),
         "order": sum((sale.order_total for sale in transactions), Decimal("0")),
@@ -294,7 +362,11 @@ def daily_summary(request, report_date=None):
         for item in sale.items.all():
             # Use the line snapshot, rather than the mutable Product Setup
             # record, so reports remain a faithful invoice history.
-            key = (item.product_id, item.product_name_snapshot or item.product.name, item.category_snapshot)
+            key = (
+                item.product_id_snapshot if item.product_id_snapshot is not None else item.product_id,
+                item.product_name_snapshot or (item.product.name if item.product_id else ""),
+                item.category_snapshot,
+            )
             detail = product_details.setdefault(
                 key,
                 {
@@ -366,6 +438,13 @@ def sales_edit(request, pk):
                         damage.save()
                     elif item.damage_quantity > 0:
                         Damage.objects.create(date=transaction.date, product=item.product, quantity=item.damage_quantity, related_transaction=transaction, reason="Updated during invoice edit")
+                if (
+                    transaction.status == SalesTransaction.Status.PENDING
+                    and save_action == "finalize"
+                ):
+                    _validate_stock_requirements(
+                        (item.product, item.order_quantity) for item in transaction.items.select_related("product")
+                    )
                 reconciliation, _ = PaymentReconciliation.objects.get_or_create(transaction=transaction)
                 for field in ("cash", "expenses", "credit", "discount", "others"):
                     setattr(reconciliation, field, request.POST.get(field) or 0)

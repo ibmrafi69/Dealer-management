@@ -96,7 +96,11 @@ def monthly_report(request):
         summary["shortage"] += getattr(getattr(sale, "reconciliation", None), "shortage", sale.grand_total_sale)
         summary["net"] += sale.net_sale
         for item in sale.items.all():
-            key = (item.product_id, item.product_name_snapshot or item.product.name, item.category_snapshot)
+            key = (
+                item.product_id_snapshot if item.product_id_snapshot is not None else item.product_id,
+                item.product_name_snapshot or (item.product.name if item.product_id else ""),
+                item.category_snapshot,
+            )
             row = product_totals.setdefault(
                 key,
                 {
@@ -274,14 +278,18 @@ def export_monthly(request):
     product_rows = {}
     for sale in transactions:
         for item in sale.items.all():
-            key = (item.category_snapshot, item.product_name_snapshot or item.product.name)
+            key = (
+                item.product_id_snapshot if item.product_id_snapshot is not None else item.product_id,
+                item.category_snapshot,
+                item.product_name_snapshot or (item.product.name if item.product_id else ""),
+            )
             row = product_rows.setdefault(key, [Decimal("0")] * 5)
             row[0] += item.order_quantity
             row[1] += item.return_quantity
             row[2] += item.sale_quantity
             row[3] += item.damage_quantity
             row[4] += item.sale_value
-    for (category, product), values in sorted(product_rows.items()):
+    for (_, category, product), values in sorted(product_rows.items()):
         products_sheet.append([category, product, *values])
     products_sheet.freeze_panes = "A2"
     for row in products_sheet.iter_rows(min_row=2, max_row=products_sheet.max_row):
