@@ -18,13 +18,27 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path
 from django.urls import include
+from django.conf import settings
+from django.conf.urls.static import static
 
 from products import views
 from sales import views as sales_views
+from dealers import views as group_views
 
 urlpatterns = [
     path("", views.home, name="home"),
     path("dashboard/", views.dashboard, name="dashboard"),
+    path("groups/switch/", group_views.switch_group, name="group-switch"),
+    path("groups/create/", group_views.create_group, name="group-create"),
+    path("groups/<int:pk>/delete/", group_views.delete_group, name="group-delete"),
+    path("credit/", group_views.dealer_list, name="dealer-list"),
+    path("credit/dealers/new/", group_views.dealer_create, name="dealer-create"),
+    path("credit/dealers/<int:pk>/", group_views.dealer_detail, name="dealer-detail"),
+    path("credit/dealers/<int:pk>/edit/", group_views.dealer_edit, name="dealer-edit"),
+    path("credit/dealers/<int:pk>/payment/", group_views.dealer_payment, name="dealer-payment"),
+    path("credit/dealers/<int:pk>/credit/", group_views.dealer_credit, name="dealer-credit"),
+    path("credit/dealers/<int:pk>/statement/", group_views.dealer_statement, name="dealer-statement"),
+    path("credit/dealers/<int:pk>/delete/", group_views.dealer_delete, name="dealer-delete"),
     path("product-setup/", views.product_setup, name="product-setup"),
     path("daily-sales/", sales_views.sales_entry, name="daily-sales-page"),
     path("daily-sales/pending/", sales_views.pending_sales, name="pending-sales"),
@@ -34,4 +48,4 @@ urlpatterns = [
     path("reports/", include("reports.urls")),
     path("godown-stock/", include("godown_stock.urls")),
     path("admin/", admin.site.urls),
-]
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

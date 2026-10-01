@@ -46,9 +46,12 @@
     const addButton = document.querySelector('#add-row');
     if (!rows || !optionTemplate) return;
 
+    const productUnits = Object.fromEntries([...document.querySelectorAll('#product-unit-data [data-product-id]')].map((item) => [item.dataset.productId, item.dataset.unit]));
+    const unitForOption = (option) => (option && (option.dataset.unit || productUnits[option.value])) || 'unit';
+
     const showAvailableStock = (option) => {
         if (!option.dataset.stockLabel) option.dataset.stockLabel = option.textContent;
-        option.textContent = `${option.dataset.stockLabel} [${option.dataset.available || 0} PCS]`;
+        option.textContent = `${option.dataset.stockLabel} [${option.dataset.available || 0} ${unitForOption(option)}]`;
     };
     optionTemplate.content.querySelectorAll('option').forEach(showAvailableStock);
     rows.querySelectorAll('option[data-available]').forEach(showAvailableStock);
@@ -82,6 +85,7 @@
         const option = row.querySelector('.product-select').selectedOptions[0];
         const hasProduct = option && option.value;
         const ctn = hasProduct ? number(option.dataset.ctn) : 0;
+        const unit = hasProduct ? unitForOption(option) : '-';
         const available = hasProduct ? number(option.dataset.available) : 0;
         const dealer = hasProduct ? number(option.dataset.dealer) : 0;
         const trade = hasProduct ? number(option.dataset.trade) : 0;
@@ -89,6 +93,8 @@
         const sale = hasProduct ? number(option.dataset.sale) || trade : 0;
         row.querySelector('.category-cell').textContent = hasProduct ? option.dataset.category : '-';
         row.querySelector('.ctn-cell').textContent = hasProduct ? ctn : '-';
+        const selectedUnit = document.querySelector('#selected-product-unit');
+        if (selectedUnit) selectedUnit.textContent = unit;
         row.querySelector('.dealer-price').textContent = hasProduct ? money(dealer) : '-';
         row.querySelector('.trade-price').textContent = hasProduct ? money(trade) : '-';
         row.querySelector('.foc-price').textContent = hasProduct ? money(foc) : '-';
@@ -99,7 +105,7 @@
         const free = number(row.querySelector('.free-product').value);
         const saleQuantity = order - returned - damage;
         row.classList.toggle('row-invalid', returned + damage > order);
-        row.classList.toggle('stock-short', hasProduct && order * ctn > available);
+        row.classList.toggle('stock-short', hasProduct && order > available);
         row.querySelector('.sale-quantity').textContent = money(saleQuantity);
         row.querySelector('.damage-value').textContent = money(damage * sale);
         row.querySelector('.free-product-value').textContent = money(free * sale);

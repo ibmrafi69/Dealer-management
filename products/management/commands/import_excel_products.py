@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
+from dealers.models import Group
 from products.models import Product
 
 
@@ -41,6 +42,7 @@ class Command(BaseCommand):
         if options["sheet"] not in workbook.sheetnames:
             raise CommandError(f"Sheet not found: {options['sheet']}")
         sheet = workbook[options["sheet"]]
+        group = Group.objects.get(name="New Zealand Dairy")
         imported = updated = skipped = 0
         with transaction.atomic():
             current_category = ""
@@ -63,7 +65,7 @@ class Command(BaseCommand):
                     "reference_dealer_price": self.money(sheet.cell(row, 21).value),
                     "markup_price": self.money(sheet.cell(row, 22).value),
                 }
-                product = Product.objects.filter(name__iexact=name, category__iexact=category).first()
+                product = Product.objects.filter(group=group, name__iexact=name, category__name__iexact=category).first()
                 if product:
                     for field, value in values.items():
                         setattr(product, field, value)
@@ -72,7 +74,7 @@ class Command(BaseCommand):
                     updated += 1
                 else:
                     if not options["dry_run"]:
-                        Product.objects.create(name=name, **values)
+                        Product.objects.create(group=group, name=name, **values)
                     imported += 1
             if options["dry_run"]:
                 transaction.set_rollback(True)

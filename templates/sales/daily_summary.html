@@ -26,13 +26,14 @@
     <div class="metric-card"><span>Total returns</span><strong>{{ totals.returns|floatformat:2 }}</strong></div>
     <div class="metric-card"><span>Total damage</span><strong>{{ totals.damage|floatformat:2 }}</strong></div>
     <div class="metric-card"><span>Total discount</span><strong>{{ totals.discount|floatformat:2 }}</strong></div>
+    <div class="metric-card"><span>Total expenses</span><strong>{{ totals.expenses|floatformat:2 }}</strong></div>
     <div class="metric-card"><span>Total shortage</span><strong>{{ totals.shortage|floatformat:2 }}</strong></div>
     <div class="metric-card"><span>Total net sales</span><strong>{{ totals.net|floatformat:2 }}</strong></div>
 </div>
 
 <section class="table-panel">
     <div class="section-heading"><h2>Cumulative Total</h2><span>All finalized invoices in the selected period</span></div>
-    <div class="table-scroll"><table class="data-table"><thead><tr><th>Total Sales</th><th>Total Returns</th><th>Total Damage</th><th>Total Discount</th><th>Total Shortage</th><th>Total Net Sales</th></tr></thead><tbody><tr><td>{{ totals.sales|floatformat:2 }}</td><td>{{ totals.returns|floatformat:2 }}</td><td>{{ totals.damage|floatformat:2 }}</td><td>{{ totals.discount|floatformat:2 }}</td><td>{{ totals.shortage|floatformat:2 }}</td><td>{{ totals.net|floatformat:2 }}</td></tr></tbody></table></div>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Total Sales</th><th>Total Returns</th><th>Total Damage</th><th>Total Discount</th><th>Total Expenses</th><th>Total Shortage</th><th>Total Net Sales</th></tr></thead><tbody><tr><td>{{ totals.sales|floatformat:2 }}</td><td>{{ totals.returns|floatformat:2 }}</td><td>{{ totals.damage|floatformat:2 }}</td><td>{{ totals.discount|floatformat:2 }}</td><td>{{ totals.expenses|floatformat:2 }}</td><td>{{ totals.shortage|floatformat:2 }}</td><td>{{ totals.net|floatformat:2 }}</td></tr></tbody></table></div>
 </section>
 
 <section class="table-panel">

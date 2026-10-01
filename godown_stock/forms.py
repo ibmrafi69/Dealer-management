@@ -18,19 +18,16 @@ class GodownStockReceiptForm(forms.ModelForm):
             "notes": forms.Textarea(attrs={"rows": 3, "placeholder": "Optional note"}),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, group=None, **kwargs):
         super().__init__(*args, **kwargs)
-        products = list(Product.objects.filter(active=True))
-        category_order = {category: index for index, category in enumerate(Product.CATEGORY_ORDER)}
-        products.sort(key=lambda product: (category_order[product.category], product.name.lower()))
+        products = list(Product.objects.filter(group=group, active=True))
+        category_order = {category_id: index for index, category_id in enumerate(Product.objects.filter(group=group).values_list("category_id", flat=True).distinct())}
+        products.sort(key=lambda product: (category_order.get(product.category_id, len(category_order)), product.name.lower()))
         self.fields["product"].queryset = Product.objects.filter(pk__in=[product.pk for product in products])
         self.fields["product"].choices = [("", "Select product")] + [
-            (
-                category,
-                [(product.pk, product.name) for product in products if product.category == category],
-            )
-            for category in Product.CATEGORY_ORDER
-            if any(product.category == category for product in products)
+            (category.name, [(product.pk, product.name) for product in products if product.category_id == category.id])
+            for category in group.categories.filter(active=True)
+            if any(product.category_id == category.id for product in products)
         ]
         self.fields["received_at"].input_formats = ["%Y-%m-%dT%H:%M"]
         if not self.is_bound:

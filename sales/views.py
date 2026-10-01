@@ -11,7 +11,8 @@ from django.http import JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect, render
 
-from dealers.models import Route
+from dealers.context import get_current_group
+from dealers.models import Dealer, Route
 from godown_stock.services import stock_balances, stock_display
 from inventory.models import StockTransaction
 from products.models import Product
@@ -85,7 +86,7 @@ def _stock_warnings(requirements):
         available = balances.get(product_id, Decimal("0"))
         if requested > available:
             warnings.append(
-                f"{product.name} - Ordered {requested} PCS, Available {available} PCS."
+                f"{product.name} - Ordered {requested} {product.unit}, Available {available} {product.unit}."
             )
     return warnings
 
@@ -122,7 +123,7 @@ def _validate_edit_stock_requirements(transaction, items, confirm_short_stock):
         if transaction.status == SalesTransaction.Status.FINALIZED:
             available += existing.get(product_id, Decimal("0"))
         if quantity > available:
-            warnings.append(f"{products[product_id].name} - Ordered {quantity} PCS, Available {available} PCS.")
+            warnings.append(f"{products[product_id].name} - Ordered {quantity} {products[product_id].unit}, Available {available} {products[product_id].unit}.")
     if warnings and confirm_short_stock != "1":
         raise StockShortageWarning(warnings)
 
@@ -147,12 +148,13 @@ def _apply_edit_form_data(transaction, form_data):
 
 
 def sales_entry(request):
-    routes = list(Route.objects.filter(active=True))
+    group = get_current_group(request)
+    routes = list(Route.objects.filter(group=group, active=True))
     weekday_order = {weekday: index for index, weekday in enumerate(Route.WEEKDAY_ORDER)}
     routes.sort(key=lambda route: (weekday_order.get(route.weekday, len(weekday_order)), route.route_name.lower()))
-    all_products = list(Product.objects.filter(active=True))
-    category_order = {category: index for index, category in enumerate(Product.CATEGORY_ORDER)}
-    all_products.sort(key=lambda product: (category_order.get(product.category, len(category_order)), product.name.lower()))
+    all_products = list(Product.objects.filter(group=group, active=True))
+    category_order = {category_id: index for index, category_id in enumerate(group.categories.values_list("id", flat=True))}
+    all_products.sort(key=lambda product: (category_order.get(product.category_id, len(category_order)), product.name.lower()))
     balances = stock_balances(all_products)
     # Pending invoices are deliberately not reservations. Keep every active
     # Product Setup item selectable; validation happens only when the user
@@ -161,8 +163,8 @@ def sales_entry(request):
     for product in all_products:
         available = balances.get(product.pk, Decimal("0"))
         product.available_stock_pieces = available
-        product.available_stock_display = stock_display(available, product.ctn_size)
-    product_groups = [(category, [product for product in products if product.category == category]) for category in Product.CATEGORY_ORDER]
+        product.available_stock_display = stock_display(available, product.ctn_size, product.unit)
+    product_groups = [(category.name, [product for product in products if product.category_id == category.id]) for category in group.categories.filter(active=True)]
     selected_date = request.POST.get("date") if request.method == "POST" else request.GET.get("date")
     try:
         selected_date = date.fromisoformat(selected_date) if selected_date else date.today()
@@ -199,7 +201,7 @@ def sales_entry(request):
             if not product_id:
                 continue
             try:
-                product = Product.objects.get(pk=product_id, active=True)
+                product = Product.objects.get(pk=product_id, group=group, active=True)
             except (Product.DoesNotExist, ValueError) as exc:
                 error = "Select an active product from Product Setup."
                 break
@@ -217,11 +219,21 @@ def sales_entry(request):
                         request.POST.get("confirm_short_stock") if request.POST.get("stock_confirmation_signature") == _stock_confirmation_signature(zip(product_ids, order_quantities)) else None,
                     )
                 route_name = request.POST.get("route_name", "").strip()
-                route = Route.objects.filter(route_name__iexact=route_name, active=True).first()
+                route = Route.objects.filter(group=group, route_name__iexact=route_name, active=True).first()
+                dealer_id = request.POST.get("dealer") or None
+                dealer = Dealer.objects.filter(pk=dealer_id, group=group).first() if dealer_id else None
                 if not route_name and not request.POST.get("dealer"):
                     raise ValueError("Select or enter a route.")
+                if dealer_id and dealer is None:
+                    raise ValueError("Select a dealer from the current group.")
+                if dealer:
+                    if not dealer.route_id:
+                        raise ValueError("The selected dealer must belong to a route.")
+                    route = dealer.route
+                    route_name = route.route_name
                 if route_name and not route:
                     route = Route(
+                        group=group,
                         route_name=route_name,
                         weekday=expected_weekday or Route.SATURDAY,
                     )
@@ -234,10 +246,11 @@ def sales_entry(request):
                     try:
                         with db_transaction.atomic():
                             sale = SalesTransaction.objects.create(
+                                group=group,
                                 route=route,
                                 route_day=route.weekday if route else "",
                                 status=SalesTransaction.Status.PENDING if save_action == "pending" else SalesTransaction.Status.FINALIZED,
-                                dealer_id=request.POST.get("dealer") or None,
+                                dealer=dealer,
                                 date=transaction_date,
                                 invoice_number=legacy_invoice_number,
                                 notes=request.POST.get("notes", "").strip(),
@@ -322,6 +335,8 @@ def sales_entry(request):
     # an empty dropdown too easy to reintroduce during future view changes.
     context = {
         "routes": routes,
+        "dealers": Dealer.objects.filter(group=group, active=True).select_related("route").order_by("name"),
+        "selected_dealer_id": request.POST.get("dealer", "") if request.method == "POST" else request.GET.get("dealer", ""),
         "products": products,
         "product_groups": product_groups,
         "today": selected_date,
@@ -331,7 +346,7 @@ def sales_entry(request):
         "default_route": default_route,
         "route_suggestions": route_suggestions,
         "weekdays": Route.WEEKDAY_CHOICES,
-        "pending_count": SalesTransaction.objects.filter(status=SalesTransaction.Status.PENDING, date=selected_date).count(),
+        "pending_count": SalesTransaction.objects.filter(group=group, status=SalesTransaction.Status.PENDING, date=selected_date).count(),
         "error": error,
         "stock_warnings": stock_warnings,
         "stock_confirmation_signature": stock_confirmation_signature,
@@ -346,12 +361,13 @@ def sales_entry(request):
 
 
 def pending_sales(request):
+    group = get_current_group(request)
     try:
         selected_date = date.fromisoformat(request.GET.get("date", ""))
     except ValueError:
         selected_date = date.today()
     pending_transactions = (
-        SalesTransaction.objects.filter(status=SalesTransaction.Status.PENDING, date=selected_date)
+        SalesTransaction.objects.filter(group=group, status=SalesTransaction.Status.PENDING, date=selected_date)
         .select_related("route", "dealer")
         .annotate(item_count=Count("items"))
         .order_by("-updated_at", "-created_at")
@@ -374,8 +390,8 @@ def invoice_preview(request):
     return JsonResponse({"invoice_number": SalesTransaction.next_invoice_number(selected_date)})
 
 
-def _finalized_summary_transactions(selected_date, selected_year, selected_month, route_id):
-    filters = {"status": SalesTransaction.Status.FINALIZED}
+def _finalized_summary_transactions(group, selected_date, selected_year, selected_month, route_id):
+    filters = {"group": group, "status": SalesTransaction.Status.FINALIZED}
     if selected_date:
         filters["date"] = selected_date
     else:
@@ -392,6 +408,7 @@ def _finalized_summary_transactions(selected_date, selected_year, selected_month
 
 
 def daily_summary(request, report_date=None):
+    group = get_current_group(request)
     today = date.today()
     date_filter = report_date or request.GET.get("date")
     try:
@@ -408,7 +425,7 @@ def daily_summary(request, report_date=None):
     if not (1 <= selected_year <= 9999 and 1 <= selected_month <= 12):
         selected_year, selected_month = default_year, default_month
     route_id = request.GET.get("route", "")
-    transactions = _finalized_summary_transactions(selected_date, selected_year, selected_month, route_id)
+    transactions = _finalized_summary_transactions(group, selected_date, selected_year, selected_month, route_id)
     totals = {
         "orders": transactions.values("invoice_number").distinct().count(),
         "order": sum((sale.order_total for sale in transactions), Decimal("0")),
@@ -479,13 +496,14 @@ def daily_summary(request, report_date=None):
     export_query = f"?year={selected_year}&month={selected_month}{('&route=' + route_id) if route_id else ''}"
     excel_export_url = f"/reports/daily/export/?date={selected_date}" if selected_date else f"/reports/monthly/export/{export_query}"
     pdf_export_url = f"/reports/monthly/export/pdf/{export_query}"
-    return render(request, "sales/daily_summary.html", {"transactions": transactions, "daily_records": daily_records, "product_details": sorted(product_details.values(), key=lambda detail: (detail["category"], detail["name"].lower())), "totals": totals, "selected_date": selected_date, "selected_year": selected_year, "selected_month": selected_month, "selected_route_id": route_id, "routes": Route.objects.filter(active=True), "month_options": [(number, month_name[number]) for number in range(1, 13)], "excel_export_url": excel_export_url, "pdf_export_url": pdf_export_url, "period_label": selected_date.strftime("%d %B %Y") if selected_date else f"{month_name[selected_month]} {selected_year}"})
+    return render(request, "sales/daily_summary.html", {"transactions": transactions, "daily_records": daily_records, "product_details": sorted(product_details.values(), key=lambda detail: (detail["category"], detail["name"].lower())), "totals": totals, "selected_date": selected_date, "selected_year": selected_year, "selected_month": selected_month, "selected_route_id": route_id, "routes": Route.objects.filter(group=group, active=True), "month_options": [(number, month_name[number]) for number in range(1, 13)], "excel_export_url": excel_export_url, "pdf_export_url": pdf_export_url, "period_label": selected_date.strftime("%d %B %Y") if selected_date else f"{month_name[selected_month]} {selected_year}"})
 
 
 def sales_invoice_detail(request, pk):
     """Render a finalized invoice as report history, never as an edit form."""
+    group = get_current_group(request)
     transaction = get_object_or_404(
-        SalesTransaction.objects.filter(status=SalesTransaction.Status.FINALIZED)
+        SalesTransaction.objects.filter(group=group, status=SalesTransaction.Status.FINALIZED)
         .select_related("route", "dealer", "reconciliation")
         .prefetch_related("items__product", "damages"),
         pk=pk,
@@ -503,14 +521,15 @@ def sales_invoice_detail(request, pk):
 
 
 def sales_edit(request, pk):
-    transaction = get_object_or_404(SalesTransaction.objects.select_related("route").prefetch_related("items", "reconciliation"), pk=pk)
+    group = get_current_group(request)
+    transaction = get_object_or_404(SalesTransaction.objects.filter(group=group).select_related("route").prefetch_related("items", "reconciliation"), pk=pk)
     template_name = "sales/pending_edit.html" if transaction.status == SalesTransaction.Status.PENDING else "sales/edit.html"
     stock_warnings = []
     stock_confirmation_signature = ""
     if request.method == "POST":
         try:
             with db_transaction.atomic():
-                transaction = SalesTransaction.objects.select_for_update().get(pk=pk)
+                transaction = SalesTransaction.objects.select_for_update().get(pk=pk, group=group)
                 save_action = request.POST.get("save_action", "pending" if transaction.status == SalesTransaction.Status.PENDING else "finalize")
                 if request.POST.get("confirm_short_stock") == "1":
                     save_action = "finalize"
@@ -591,8 +610,9 @@ def sales_edit(request, pk):
 def product_history(request, product_id):
     from django.shortcuts import get_object_or_404
 
-    product = get_object_or_404(Product, pk=product_id)
-    items = SalesItem.objects.filter(product=product).select_related("transaction", "transaction__route").order_by("transaction__date", "transaction__created_at")
+    group = get_current_group(request)
+    product = get_object_or_404(Product, pk=product_id, group=group)
+    items = SalesItem.objects.filter(group=group, product=product).select_related("transaction", "transaction__route").order_by("transaction__date", "transaction__created_at")
     return render(request, "sales/product_history.html", {
         "product": product,
         "items": items,

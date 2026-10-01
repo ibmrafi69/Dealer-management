@@ -5,14 +5,14 @@
     <div>
         <p class="page-kicker">Inventory audit trail</p>
         <h1>{% if product %}{{ product.name }} Stock History{% else %}Stock History{% endif %}</h1>
-        <p class="setup-subtitle">{% if product %}1 CTN = {{ product.pieces_per_ctn }} PCS. Balances are recalculated from saved receipts and finalized invoices.{% else %}Choose a product to view its persisted receipt and finalized-sales movements.{% endif %}</p>
+        <p class="setup-subtitle">{% if product %}1 CTN = {{ product.pieces_per_ctn }} {{ product.unit }}. Balances are recalculated from saved receipts and finalized invoices.{% else %}Choose a product to view its persisted receipt and finalized-sales movements.{% endif %}</p>
     </div>
     <div class="setup-header-actions"><a class="outline-button" href="{% url 'godown-stock' %}">Back to Godown Stock</a><a class="dark-button" href="{% url 'godown-add-stock' %}">+ Add Stock</a></div>
 </header>
 
 {% if product %}
 <section class="table-panel">
-    <div class="section-heading"><div><h2>Movement ledger</h2><span>Pending invoices are never included.</span></div><span>{{ product.pieces_per_ctn }} PCS / CTN</span></div>
+    <div class="section-heading"><div><h2>Movement ledger</h2><span>Pending invoices are never included.</span></div><span>{{ product.pieces_per_ctn }} {{ product.unit }} / CTN</span></div>
     <div class="table-scroll"><table class="data-table godown-history-table"><thead><tr><th>Date</th><th>Movement</th><th>Reference</th><th>In (PCS)</th><th>Out (PCS)</th><th>Balance</th><th>Notes</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.occurred_at|date:'d M Y H:i' }}</td><td><strong>{{ event.movement }}</strong></td><td>{{ event.reference }}</td><td>{{ event.in_display }}</td><td>{{ event.out_display }}</td><td><strong>{{ event.balance_display }}</strong></td><td>{{ event.notes|default:'-' }}</td></tr>{% empty %}<tr><td colspan="7" class="empty-state">No stock receipts or finalized sales movements have been recorded for this product.</td></tr>{% endfor %}</tbody></table></div>
 </section>
 {% else %}

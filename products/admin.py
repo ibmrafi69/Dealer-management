@@ -1,12 +1,19 @@
 from django.contrib import admin
-from .models import Product, ProductPriceHistory
+from .models import Category, Product, ProductPriceHistory
+
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+	list_display = ("name", "group", "active", "created_at")
+	list_filter = ("group", "active")
+	search_fields = ("name",)
 
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
 	list_display = ("name", "category", "ctn_size", "dealer_price", "trade_price", "selling_price", "active")
 	list_filter = ("active", "category")
-	search_fields = ("name", "category")
+	search_fields = ("name", "category__name")
 
 
 @admin.register(ProductPriceHistory)

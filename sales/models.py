@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from dealers.models import Dealer
+from dealers.models import Group
 from dealers.models import Route
 from products.models import Product
 
@@ -12,6 +13,7 @@ CURRENCY_DENOMINATIONS = (1000, 500, 200, 100, 50, 20, 10, 5, 1)
 
 
 class SalesTransaction(models.Model):
+    group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name="sales_transactions")
     dealer = models.ForeignKey(Dealer, on_delete=models.PROTECT, null=True, blank=True, related_name="sales_transactions")
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
@@ -48,11 +50,32 @@ class SalesTransaction(models.Model):
         location = self.route.route_name if self.route_id else self.dealer.name
         return f"{self.invoice_number} - {location}"
 
+    def clean(self):
+        errors = {}
+        if self.route_id and self.group_id and self.route.group_id != self.group_id:
+            errors["route"] = "Route belongs to another group."
+        if self.dealer_id and self.group_id and self.dealer.group_id != self.group_id:
+            errors["dealer"] = "Dealer belongs to another group."
+        if errors:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
+        if not self.group_id:
+            self.group = Group.default()
         if self._state.adding and not self.invoice_number:
             self.invoice_number = self.next_invoice_number(self.date)
         if self._state.adding and self.route_id and not self.route_day:
             self.route_day = self.route.weekday
+        if self.route_id and self.route.group_id != self.group_id:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("Route belongs to another group.")
+        if self.dealer_id and self.dealer.group_id != self.group_id:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("Dealer belongs to another group.")
         super().save(*args, **kwargs)
 
     @property
@@ -200,6 +223,7 @@ class CurrencyCount(models.Model):
         ).quantize(Decimal("0.01"))
         return super().save(*args, **kwargs)
 class SalesItem(models.Model):
+    group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name="sales_items")
     transaction = models.ForeignKey(SalesTransaction, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="sales_items")
     product_id_snapshot = models.BigIntegerField(null=True, blank=True, editable=False)
@@ -226,6 +250,10 @@ class SalesItem(models.Model):
 
     def clean(self):
         errors = {}
+        if not self.group_id and self.transaction_id:
+            self.group = self.transaction.group
+        if self.product_id and self.group_id and self.product.group_id != self.group_id:
+            errors["product"] = "Product belongs to another group."
         for field in ("order_quantity", "return_quantity", "foc_quantity", "free_product_quantity", "damage_quantity", "discount", "dealer_price_snapshot", "trade_price_snapshot", "foc_snapshot", "sale_price_snapshot"):
             if getattr(self, field) < 0:
                 errors[field] = "This value cannot be negative."
@@ -252,6 +280,8 @@ class SalesItem(models.Model):
         return self.free_product_quantity * self.unit_price
 
     def save(self, *args, **kwargs):
+        if not self.group_id and self.transaction_id:
+            self.group = self.transaction.group
         self.order_quantity = Decimal(str(self.order_quantity or 0))
         self.return_quantity = Decimal(str(self.return_quantity or 0))
         self.foc_quantity = Decimal(str(self.foc_quantity or 0))
@@ -266,7 +296,7 @@ class SalesItem(models.Model):
             product = self.product
             self.product_id_snapshot = product.pk
             self.product_name_snapshot = product.name
-            self.category_snapshot = product.category
+            self.category_snapshot = product.category.name
             self.ctn_size_snapshot = product.ctn_size
             self.dealer_price_snapshot = product.dealer_price
             self.trade_price_snapshot = product.trade_price

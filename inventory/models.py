@@ -1,10 +1,12 @@
 ﻿from django.db import models
 
 from dealers.models import Dealer
+from dealers.models import Group
 from products.models import Product
 
 
 class Damage(models.Model):
+    group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name="damages")
     date = models.DateField()
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="damages")
     product_id_snapshot = models.BigIntegerField(null=True, blank=True, editable=False)
@@ -21,6 +23,12 @@ class Damage(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
+        if not self.group_id:
+            self.group = self.related_transaction.group if self.related_transaction_id else Group.default()
+        if self.product_id and self.product.group_id != self.group_id:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("Product belongs to another group.")
         if self.quantity < 0:
             raise ValueError("Damage quantity cannot be negative.")
         price = self.unit_price_snapshot
@@ -29,7 +37,7 @@ class Damage(models.Model):
             if self._state.adding:
                 self.product_id_snapshot = product.pk
                 self.product_name_snapshot = product.name
-                self.category_snapshot = product.category
+                self.category_snapshot = product.category.name
                 self.ctn_size_snapshot = product.ctn_size
             price = product.dealer_price
         if self.related_transaction_id and self.product_id_snapshot is not None:
@@ -44,6 +52,7 @@ class Damage(models.Model):
 
 
 class StockTransaction(models.Model):
+    group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name="stock_transactions")
     PURCHASE = "PURCHASE"
     SALE = "SALE"
     RETURN = "RETURN"
@@ -69,11 +78,17 @@ class StockTransaction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
+        if not self.group_id:
+            self.group = self.product.group if self.product_id else Group.default()
+        if self.product_id and self.product.group_id != self.group_id:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError("Product belongs to another group.")
         if self._state.adding and self.product_id:
             product = self.product
             self.product_id_snapshot = product.pk
             self.product_name_snapshot = product.name
-            self.category_snapshot = product.category
+            self.category_snapshot = product.category.name
             self.ctn_size_snapshot = product.ctn_size
         return super().save(*args, **kwargs)
 

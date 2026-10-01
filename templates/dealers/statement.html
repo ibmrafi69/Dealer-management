@@ -1,0 +1,6 @@
+{% extends "base_app.html" %}
+{% block title %}Dealer Statement | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<header class="app-header"><div><p class="page-kicker">Read-only statement | {{ current_group.name }}</p><h1>{{ dealer.name }}</h1><p class="setup-subtitle">{{ dealer.route.route_name|default:'No route' }} · {{ dealer.location|default:dealer.address|default:'No location recorded' }}</p></div><button class="dark-button" type="button" onclick="window.print()">Print Statement</button></header>
+<section class="setup-card"><div class="section-heading"><div><h2>Credit Ledger Statement</h2><span>Opening balance through current date</span></div><strong>Closing Due: {{ due|floatformat:2 }}</strong></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Debit</th><th>Credit</th><th>Running Balance</th></tr></thead><tbody>{% for row in ledger %}<tr><td>{% if row.date %}{{ row.date|date:'d M Y' }}{% else %}-{% endif %}</td><td>{{ row.type }}</td><td>{{ row.reference }}</td><td>{{ row.debit|floatformat:2 }}</td><td>{{ row.credit|floatformat:2 }}</td><td>{{ row.balance|floatformat:2 }}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

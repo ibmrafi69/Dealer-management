@@ -5,6 +5,9 @@ from django.conf import settings
 from django.core.management import call_command
 from django.test import TestCase
 
+from dealers.models import Group, Route
+from godown_stock.models import GodownStockReceipt
+from godown_stock.services import stock_rows
 from dealers.models import Dealer
 from sales.models import SalesItem, SalesTransaction
 
@@ -26,7 +29,8 @@ class ExcelProductImportTests(TestCase):
     def test_imports_new_zealand_dairy_product_master(self):
         call_command("import_excel_products")
         product = Product.objects.get(name="Diploma 1kg")
-        self.assertEqual(Product.objects.count(), 81)
+        self.assertEqual(product.group.name, "New Zealand Dairy")
+        self.assertEqual(Product.objects.filter(group=product.group).count(), 81)
         self.assertEqual(product.category, "Milk")
         self.assertEqual(product.ctn_size, 12)
         self.assertEqual(product.dealer_price, Decimal("871.17"))
@@ -141,6 +145,90 @@ class ExcelProductImportTests(TestCase):
         self.assertEqual(new_item.unit_price, Decimal("900.00"))
         self.assertEqual(product.price_history.count(), 1)
         self.assertEqual(product.price_history.first().price_type, "SALE_PRICE")
+
+
+
+class BDFoodsProductTests(TestCase):
+    def setUp(self):
+        self.group = Group.objects.get(name="BD Foods")
+
+    def test_reference_products_are_seeded_with_configured_units_and_prices(self):
+        self.assertEqual(self.group.products.count(), 19)
+        product = self.group.products.get(name="Potato crackers 15gm")
+        self.assertEqual((product.ctn_size, product.unit, product.dealer_price, product.selling_price), (80, "single", Decimal("600.00"), Decimal("630.00")))
+        chutney = self.group.products.get(name="BD Tamarind Chutney")
+        self.assertEqual((chutney.ctn_size, chutney.unit, chutney.dealer_price, chutney.selling_price), (432, "dozen", Decimal("1584.00"), Decimal("47.00")))
+        missing = self.group.products.get(name="Happy Cow 200/500 Ndls")
+        self.assertEqual((missing.ctn_size, missing.unit, missing.dealer_price, missing.selling_price), (1, "unit", Decimal("0.00"), Decimal("0.00")))
+
+    def test_reference_calculations_use_saved_sale_and_return_prices(self):
+        potato = self.group.products.get(name="Potato crackers 15gm")
+        sale = SalesTransaction.objects.create(group=self.group, date="2026-10-01", invoice_number="BD-CALC-1")
+        item = SalesItem.objects.create(group=self.group, transaction=sale, product=potato, order_quantity=36)
+        self.assertEqual(item.sale_quantity, Decimal("36.00"))
+        self.assertEqual(item.sale_value, Decimal("22680.00"))
+
+        chutney = self.group.products.get(name="BD Tamarind Chutney")
+        return_sale = SalesTransaction.objects.create(group=self.group, date="2026-10-01", invoice_number="BD-CALC-2")
+        returned = SalesItem.objects.create(group=self.group, transaction=return_sale, product=chutney, order_quantity=12, return_quantity=12)
+        self.assertEqual(returned.return_value, Decimal("564.00"))
+        self.assertEqual(returned.sale_quantity, Decimal("0.00"))
+
+    def test_bd_products_start_with_zero_stock_and_nzd_catalog_is_unchanged(self):
+        product = self.group.products.get(name="BD Jhal Chanachur 150 gm")
+        self.assertEqual(stock_rows([product])[0]["balance_pieces"], Decimal("0"))
+        self.assertTrue(Group.objects.get(name="New Zealand Dairy").active)
+
+
+class DashboardTests(TestCase):
+    def setUp(self):
+        self.nzd = Group.objects.get(name="New Zealand Dairy")
+        self.bd = Group.objects.get(name="BD Foods")
+        self.nzd_route = Route.objects.create(group=self.nzd, route_name="Dashboard NZD", weekday=Route.MONDAY)
+        self.bd_route = Route.objects.create(group=self.bd, route_name="Dashboard BD", weekday=Route.MONDAY)
+        self.nzd_product = Product.objects.create(group=self.nzd, name="Dashboard NZD Product", category=Product.MILK, selling_price=100)
+        self.bd_product = self.bd.products.get(name="Potato crackers 15gm")
+
+    def switch_to(self, group):
+        response = self.client.post("/groups/switch/", {"group_id": group.pk, "next": "/dashboard/"})
+        self.assertEqual(response.status_code, 302)
+
+    def create_sale(self, group, route, product, invoice, sale_date, status=SalesTransaction.Status.FINALIZED, quantity=1):
+        transaction = SalesTransaction.objects.create(group=group, route=route, date=sale_date, invoice_number=invoice, status=status)
+        SalesItem.objects.create(group=group, transaction=transaction, product=product, order_quantity=quantity)
+        return transaction
+
+    def test_dashboard_is_group_and_month_specific_and_excludes_pending(self):
+        self.create_sale(self.nzd, self.nzd_route, self.nzd_product, "NZD-DASH-SEP", "2026-09-15", quantity=3)
+        self.create_sale(self.nzd, self.nzd_route, self.nzd_product, "NZD-DASH-PENDING", "2026-09-16", status=SalesTransaction.Status.PENDING, quantity=9)
+        bd_sale = self.create_sale(self.bd, self.bd_route, self.bd_product, "BD-DASH-OCT", "2026-10-01", quantity=2)
+        second_product = Product.objects.create(group=self.bd, name="Dashboard BD Second", category=Product.MILK, selling_price=5)
+        SalesItem.objects.create(group=self.bd, transaction=bd_sale, product=second_product, order_quantity=4)
+
+        self.switch_to(self.nzd)
+        september = self.client.get("/dashboard/?year=2026&month=9")
+        self.assertEqual(september.context["monthly"]["orders"], 1)
+        self.assertEqual(september.context["monthly"]["sales"], Decimal("300.00"))
+        self.assertContains(september, "NZD-DASH-SEP")
+        self.assertNotContains(september, "BD-DASH-OCT")
+        self.assertEqual(len(september.context["sales_trend"]), 30)
+
+        self.switch_to(self.bd)
+        october = self.client.get("/dashboard/?year=2026&month=10")
+        self.assertEqual(october.context["monthly"]["orders"], 1)
+        self.assertEqual(october.context["monthly"]["sales"], Decimal("1280.00"))
+        self.assertContains(october, "BD-DASH-OCT")
+        self.assertNotContains(october, "NZD-DASH-SEP")
+        self.assertEqual(len(october.context["sales_trend"]), 31)
+        self.assertEqual(october.context["top_products"][0]["quantity"], Decimal("4.00"))
+
+    def test_dashboard_stock_overview_uses_existing_stock_rows(self):
+        GodownStockReceipt.objects.create(group=self.bd, product=self.bd_product, received_ctn=1)
+        self.switch_to(self.bd)
+        response = self.client.get("/dashboard/?year=2026&month=10")
+        self.assertEqual(response.context["active_product_count"], self.bd.products.filter(active=True).count())
+        self.assertEqual(response.context["in_stock_count"], 1)
+        self.assertEqual(response.context["out_of_stock_count"], self.bd.products.filter(active=True).count() - 1)
 from django.test import TestCase
 
 # Create your tests here.

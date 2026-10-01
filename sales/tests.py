@@ -71,6 +71,20 @@ class SalesCalculationTests(TestCase):
         self.assertEqual(sale.grand_total_sale, Decimal("11210.35"))
         self.assertEqual(sale.net_sale, Decimal("11141.96"))
 
+    def test_expenses_and_shortage_are_reported_separately(self):
+        self.product.selling_price = Decimal("100")
+        self.product.save()
+        sale = SalesTransaction.objects.create(
+            dealer=self.dealer,
+            date=date(2026, 9, 26),
+            invoice_number="INV-EXPENSE-SEPARATION",
+            status=SalesTransaction.Status.FINALIZED,
+        )
+        SalesItem.objects.create(transaction=sale, product=self.product, order_quantity=100)
+        reconciliation = PaymentReconciliation.objects.create(transaction=sale, cash=9400, expenses=500)
+        self.assertEqual(reconciliation.expenses, Decimal("500.00"))
+        self.assertEqual(reconciliation.shortage, Decimal("100.00"))
+
     def test_return_cannot_exceed_order(self):
         sale = SalesTransaction.objects.create(dealer=self.dealer, date=date(2026, 9, 26), invoice_number="INV-2")
         with self.assertRaises(Exception):
@@ -355,6 +369,7 @@ class SalesCalculationTests(TestCase):
         self.assertEqual(sale.grand_total_sale, Decimal("6800.00"))
         self.assertEqual(sale.total_discount, Decimal("40.00"))
         self.assertEqual(sale.net_sale, Decimal("5400.00"))
+        self.assertEqual(sale.reconciliation.expenses, Decimal("100.00"))
         self.assertEqual(sale.reconciliation.shortage, Decimal("125.00"))
         self.assertEqual(sale.damages.get().value, Decimal("680.00"))
         # Editing an invoice must never write back to Product Setup.
@@ -373,6 +388,7 @@ class SalesCalculationTests(TestCase):
         self.assertEqual(summary.context["totals"]["sales"], Decimal("6800.00"))
         self.assertEqual(summary.context["totals"]["damage"], Decimal("680.00"))
         self.assertEqual(summary.context["totals"]["discount"], Decimal("40.00"))
+        self.assertEqual(summary.context["totals"]["expenses"], Decimal("100.00"))
         self.assertEqual(summary.context["totals"]["shortage"], Decimal("125.00"))
         self.assertEqual(summary.context["totals"]["net"], Decimal("5400.00"))
         self.assertContains(summary, "Snapshot Milk")

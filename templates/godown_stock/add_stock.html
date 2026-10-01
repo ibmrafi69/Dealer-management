@@ -6,20 +6,20 @@
     <div>
         <p class="page-kicker">Company receipt</p>
         <h1>Add Stock</h1>
-        <p class="setup-subtitle">Record cartons and partial pieces received into the godown.</p>
+        <p class="setup-subtitle">Record cartons and partial configured units received into the godown.</p>
     </div>
     <div class="setup-header-actions"><a class="outline-button" href="{% url 'godown-stock' %}">Back to Godown Stock</a></div>
 </header>
 
 <section class="form-panel godown-form-panel">
-    <div class="section-heading"><div><h2>Received stock</h2><span>Current product Pieces per CTN is used to calculate and store total PCS.</span></div></div>
+    <div class="section-heading"><div><h2>Received stock</h2><span>Each product uses its configured unit and units-per-CTN value.</span></div></div>
     <form method="post" class="godown-receipt-form">{% csrf_token %}
         {% if form.non_field_errors %}<p class="form-error">{{ form.non_field_errors }}</p>{% endif %}
         <div class="meta-grid">
             <label>Product{{ form.product }}{% for error in form.product.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
             <label>Date and time{{ form.received_at }}{% for error in form.received_at.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
             <label>Received CTN{{ form.received_ctn }}{% for error in form.received_ctn.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
-            <label>Received PCS{{ form.received_pcs }}<small>Partial PCS only; must be less than this product's Pieces per CTN.</small>{% for error in form.received_pcs.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
+            <label>Received partial unit{{ form.received_pcs }}<small>Partial unit quantity must be less than this product's units per CTN.</small>{% for error in form.received_pcs.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>
         </div>
         <div class="meta-grid godown-detail-grid">
             <label>Reference / challan{{ form.reference }}{% for error in form.reference.errors %}<span class="field-error">{{ error }}</span>{% endfor %}</label>

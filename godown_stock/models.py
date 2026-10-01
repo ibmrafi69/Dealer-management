@@ -3,11 +3,13 @@ from django.db import models
 from django.utils import timezone
 
 from products.models import Product
+from dealers.models import Group
 
 
 class GodownStockReceipt(models.Model):
     """A persistent company-stock receipt. Current stock is derived, never saved."""
 
+    group = models.ForeignKey(Group, on_delete=models.PROTECT, related_name="stock_receipts")
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="godown_stock_receipts")
     product_id_snapshot = models.BigIntegerField(null=True, blank=True, editable=False)
     product_name_snapshot = models.CharField(max_length=160, blank=True)
@@ -32,16 +34,20 @@ class GodownStockReceipt(models.Model):
             errors["product"] = "Select an active product from Product Setup."
         if self.product_id and self.received_pcs >= self.product.ctn_size:
             errors["received_pcs"] = "Partial pieces must be smaller than this product's Pieces per CTN value."
+        if self.product_id and self.group_id and self.product.group_id != self.group_id:
+            errors["product"] = "Product belongs to another group."
         if errors:
             raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
+        if not self.group_id:
+            self.group = self.product.group if self.product_id else Group.default()
         if self.product_id:
             product = self.product
             if self._state.adding:
                 self.product_id_snapshot = product.pk
                 self.product_name_snapshot = product.name
-                self.category_snapshot = product.category
+                self.category_snapshot = product.category.name
                 self.ctn_size_snapshot = product.ctn_size
             self.total_pieces = self.received_ctn * product.ctn_size + self.received_pcs
         self.full_clean()

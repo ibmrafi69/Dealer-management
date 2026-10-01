@@ -7,20 +7,25 @@ from django.http import HttpResponse
 from django.shortcuts import render
 from django.utils.html import escape
 
+from dealers.context import get_current_group
 from dealers.models import Route
 from sales.models import SalesTransaction
 
 
 def _filtered_transactions(request):
+    group = get_current_group(request)
     today = date.today()
     try:
         year = int(request.GET.get("year", today.year))
         month = int(request.GET.get("month", today.month))
+        if not 1 <= month <= 12:
+            raise ValueError
     except ValueError:
         year, month = today.year, today.month
     route_id = request.GET.get("route", "")
     transactions = (
         SalesTransaction.objects.filter(
+            group=group,
             status=SalesTransaction.Status.FINALIZED,
             date__year=year,
             date__month=month,
@@ -30,7 +35,7 @@ def _filtered_transactions(request):
     )
     if route_id:
         transactions = transactions.filter(route_id=route_id)
-    return year, month, route_id, transactions
+    return group, year, month, route_id, transactions
 
 
 def _invoice_records(transactions):
@@ -54,6 +59,7 @@ def _invoice_records(transactions):
             "returns": sale.return_total,
             "damage": sale.damage_total,
             "discount": sale.total_discount,
+            "expenses": getattr(getattr(sale, "reconciliation", None), "expenses", Decimal("0")),
             "shortage": getattr(getattr(sale, "reconciliation", None), "shortage", sale.grand_total_sale),
             "net": sale.net_sale,
         }
@@ -62,19 +68,19 @@ def _invoice_records(transactions):
 
 
 def _invoice_totals(records):
-    fields = ("sales", "returns", "damage", "discount", "shortage", "net")
+    fields = ("sales", "returns", "damage", "discount", "expenses", "shortage", "net")
     return {field: sum((record[field] for record in records), Decimal("0")) for field in fields}
 
 
-def _route_label(route_id):
+def _route_label(route_id, group):
     if not route_id:
         return "All routes"
-    route = Route.objects.filter(pk=route_id).only("route_name").first()
+    route = Route.objects.filter(pk=route_id, group=group).only("route_name").first()
     return route.route_name if route else "Selected route"
 
 
 def monthly_report(request):
-    year, month, route_id, transactions = _filtered_transactions(request)
+    group, year, month, route_id, transactions = _filtered_transactions(request)
     daily = {}
     product_totals = {}
     for sale in transactions:
@@ -85,6 +91,7 @@ def monthly_report(request):
                 "returns": Decimal("0"),
                 "damage": Decimal("0"),
                 "discount": Decimal("0"),
+                "expenses": Decimal("0"),
                 "shortage": Decimal("0"),
                 "net": Decimal("0"),
             },
@@ -93,6 +100,7 @@ def monthly_report(request):
         summary["returns"] += sale.return_total
         summary["damage"] += sale.damage_total
         summary["discount"] += sale.total_discount + sale.free_product_total
+        summary["expenses"] += getattr(getattr(sale, "reconciliation", None), "expenses", Decimal("0"))
         summary["shortage"] += getattr(getattr(sale, "reconciliation", None), "shortage", sale.grand_total_sale)
         summary["net"] += sale.net_sale
         for item in sale.items.all():
@@ -128,7 +136,7 @@ def monthly_report(request):
             "daily_records": daily_records,
             "product_totals": product_totals.items(),
             "totals": totals,
-            "routes": Route.objects.filter(active=True),
+            "routes": Route.objects.filter(group=group, active=True),
             "year": year,
             "month": month,
             "month_name": month_name[month],
@@ -157,10 +165,10 @@ def export_monthly(request):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
 
-    year, month, route_id, transactions = _filtered_transactions(request)
+    group, year, month, route_id, transactions = _filtered_transactions(request)
     records = _invoice_records(transactions)
     totals = _invoice_totals(records)
-    route_label = _route_label(route_id)
+    route_label = _route_label(route_id, group)
 
     workbook = Workbook()
     summary_sheet = workbook.active
@@ -329,10 +337,10 @@ def export_monthly_pdf(request):
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    year, month, route_id, transactions = _filtered_transactions(request)
+    group, year, month, route_id, transactions = _filtered_transactions(request)
     records = _invoice_records(transactions)
     totals = _invoice_totals(records)
-    route_label = _route_label(route_id)
+    route_label = _route_label(route_id, group)
     output = BytesIO()
     document = SimpleDocTemplate(
         output,
@@ -466,7 +474,8 @@ def export_daily(request):
         selected_date = date.fromisoformat(request.GET.get("date", ""))
     except ValueError:
         selected_date = date.today()
-    transactions = SalesTransaction.objects.filter(status=SalesTransaction.Status.FINALIZED, date=selected_date).select_related("dealer", "route").prefetch_related("items__product", "damages")
+    group = get_current_group(request)
+    transactions = SalesTransaction.objects.filter(group=group, status=SalesTransaction.Status.FINALIZED, date=selected_date).select_related("dealer", "route").prefetch_related("items__product", "damages")
     workbook = Workbook()
     summary = workbook.active
     summary.title = "Daily Summary"

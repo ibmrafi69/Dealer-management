@@ -22,9 +22,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         changed = 0
         for product in Product.objects.all():
-            category = self.LEGACY_ALIASES.get(product.category, product.category)
+            category = self.LEGACY_ALIASES.get(product.category.name, product.category.name)
             category = self.BLANK_BY_NAME.get(product.name, category)
-            if category != product.category:
-                Product.objects.filter(pk=product.pk).update(category=category)
+            if category != product.category.name:
+                category_obj, _ = product.group.categories.get_or_create(name=category)
+                Product.objects.filter(pk=product.pk).update(category_id=category_obj.pk)
                 changed += 1
         self.stdout.write(self.style.SUCCESS(f"Normalized {changed} product categories."))

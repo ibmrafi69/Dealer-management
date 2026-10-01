@@ -1,0 +1,7 @@
+{% extends "base_app.html" %}
+{% block title %}New Credit | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<header class="app-header"><div><p class="page-kicker">Manual Credit</p><h1>{{ dealer.name }}</h1><p class="dashboard-group-name">Current due: {{ dealer.current_due|floatformat:2 }}</p></div><a class="outline-button" href="{% url 'dealer-detail' dealer.id %}">Back to Dealer</a></header>
+{% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+<section class="setup-card"><form method="post" class="product-form">{% csrf_token %}<fieldset><legend>New Credit</legend><div class="product-form-grid"><label>Date<input name="credit_date" type="date" value="{{ today|date:'Y-m-d' }}" required></label><label>Amount<input name="amount" type="number" min="0.01" step="0.01" required></label><label>Reference / Note<input name="reference" placeholder="Manual credit reference"></label><label>Optional Memo<textarea name="notes" rows="3" placeholder="Why was this credit added?"></textarea></label></div></fieldset><div class="product-form-actions"><button class="dark-button" type="submit">Save Credit</button><a class="outline-button" href="{% url 'dealer-detail' dealer.id %}">Cancel</a></div></form></section>
+{% endblock %}
