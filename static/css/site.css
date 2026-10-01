@@ -144,6 +144,8 @@ h1 span { color: transparent; -webkit-text-stroke: 1px rgba(248, 252, 252, .9); 
 .sales-sheet .calc { background: #eef5e8; color: #38534d; }
 .sales-sheet .row-invalid { background: #fff4ef; }
 .sales-sheet .row-invalid .returned { border-color: #d66148; }
+.sales-sheet .stock-short { background: #fff8dc; }
+.sales-sheet .stock-short .order { border-color: #c68a00; }
 .sales-sheet tfoot th { background: #e7d9a5; color: var(--app-ink); font-size: 11px; }
 .remove-row { background: none; border: 0; color: #b44f42; cursor: pointer; font-size: 20px; }
 .entry-total { color: var(--app-muted); display: flex; font-size: 11px; justify-content: space-between; padding: 15px 24px; }

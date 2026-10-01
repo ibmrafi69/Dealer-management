@@ -1,6 +1,7 @@
 from calendar import month_name
 from datetime import date
 from decimal import Decimal, InvalidOperation
+import hashlib
 import logging
 
 from django.db import IntegrityError
@@ -21,6 +22,12 @@ from .models import PaymentReconciliation, SalesItem, SalesTransaction
 
 
 logger = logging.getLogger(__name__)
+
+
+class StockShortageWarning(Exception):
+    def __init__(self, warnings):
+        self.warnings = warnings
+        super().__init__("; ".join(warnings))
 
 
 def currency_count_context(currency_count=None, form_data=None):
@@ -54,8 +61,7 @@ def update_currency_count_from_request(request, currency_count):
     currency_count.save()
     return currency_count
 
-def _validate_stock_requirements(requirements):
-    """Reject a final Daily Sales dispatch that exceeds usable Godown Stock."""
+def _stock_warnings(requirements):
     requested_pieces = {}
     products_by_id = {}
     for product, quantity in requirements:
@@ -66,11 +72,10 @@ def _validate_stock_requirements(requirements):
         if quantity < 0:
             raise ValueError("Daily Sales quantity cannot be negative.")
         products_by_id[product.pk] = product
-        requested_pieces[product.pk] = requested_pieces.get(product.pk, Decimal("0")) + (
-            quantity * Decimal(product.ctn_size)
-        )
+        requested_pieces[product.pk] = requested_pieces.get(product.pk, Decimal("0")) + quantity
 
     balances = stock_balances(list(products_by_id.values()))
+    warnings = []
     for product_id, requested in requested_pieces.items():
         # A selected zero-quantity line does not dispatch anything, so it must
         # not be rejected merely because this product is currently out of stock.
@@ -79,10 +84,66 @@ def _validate_stock_requirements(requirements):
         product = products_by_id[product_id]
         available = balances.get(product_id, Decimal("0"))
         if requested > available:
-            raise ValueError(
-                f"Insufficient Godown Stock for {product.name}. "
-                f"Available: {stock_display(available, product.ctn_size)}."
+            warnings.append(
+                f"{product.name} - Ordered {requested} PCS, Available {available} PCS."
             )
+    return warnings
+
+
+def _validate_stock_requirements(requirements, confirm_short_stock):
+    warnings = _stock_warnings(requirements)
+    if warnings and confirm_short_stock != "1":
+        raise StockShortageWarning(warnings)
+
+
+def _stock_confirmation_signature(values):
+    payload = "|".join(f"{product_id}:{quantity}" for product_id, quantity in values)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _validate_edit_stock_requirements(transaction, items, confirm_short_stock):
+    requested = {}
+    existing = {}
+    products = {}
+    for item in items:
+        try:
+            quantity = Decimal(str(item.order_quantity or 0))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise ValueError("Enter a valid Daily Sales quantity.") from exc
+        if quantity < 0:
+            raise ValueError("Daily Sales quantity cannot be negative.")
+        products[item.product_id] = item.product
+        requested[item.product_id] = requested.get(item.product_id, Decimal("0")) + quantity
+        existing[item.product_id] = existing.get(item.product_id, Decimal("0")) + quantity
+    balances = stock_balances(list(products.values()))
+    warnings = []
+    for product_id, quantity in requested.items():
+        available = balances.get(product_id, Decimal("0"))
+        if transaction.status == SalesTransaction.Status.FINALIZED:
+            available += existing.get(product_id, Decimal("0"))
+        if quantity > available:
+            warnings.append(f"{products[product_id].name} - Ordered {quantity} PCS, Available {available} PCS.")
+    if warnings and confirm_short_stock != "1":
+        raise StockShortageWarning(warnings)
+
+
+def _apply_edit_form_data(transaction, form_data):
+    transaction.notes = form_data.get("notes", transaction.notes)
+    reconciliation = getattr(transaction, "reconciliation", None)
+    if reconciliation:
+        for field in ("cash", "expenses", "credit", "discount", "others"):
+            value = form_data.get(field if field != "discount" else "discount", None)
+            if value is not None:
+                setattr(reconciliation, field, Decimal(value or 0))
+    for item in transaction.items.all():
+        for field in ("order_quantity", "return_quantity", "foc_quantity", "free_product_quantity", "damage_quantity", "discount"):
+            value = form_data.get(f"{field}_{item.pk}")
+            if value is not None:
+                setattr(item, field, Decimal(value or 0))
+        for field, form_field in (("dealer_price_snapshot", "dealer_price"), ("trade_price_snapshot", "trade_price"), ("foc_snapshot", "foc_price"), ("sale_price_snapshot", "sale_price")):
+            value = form_data.get(f"{form_field}_{item.pk}")
+            if value is not None:
+                setattr(item, field, Decimal(value or 0))
 
 
 def sales_entry(request):
@@ -119,12 +180,42 @@ def sales_entry(request):
     )
     route_suggestions = [(route.weekday, route.route_name) for route in routes if route.is_default_route]
     error = None
+    stock_warnings = []
+    stock_confirmation_signature = ""
+    product_ids = request.POST.getlist("product_id") if request.method == "POST" else []
+    order_quantities = request.POST.getlist("order_quantity") if request.method == "POST" else []
+    return_quantities = request.POST.getlist("return_quantity") if request.method == "POST" else []
+    foc_quantities = request.POST.getlist("foc_quantity") if request.method == "POST" else []
+    free_product_quantities = request.POST.getlist("free_product_quantity") if request.method == "POST" else []
+    discounts = request.POST.getlist("discount") if request.method == "POST" else []
+    damage_quantities = request.POST.getlist("damage_quantity") if request.method == "POST" else []
+
+    def row_value(values, index):
+        return values[index] if index < len(values) else ""
+
+    selected_items = []
+    if request.method == "POST":
+        for index, product_id in enumerate(product_ids):
+            if not product_id:
+                continue
+            try:
+                product = Product.objects.get(pk=product_id, active=True)
+            except (Product.DoesNotExist, ValueError) as exc:
+                error = "Select an active product from Product Setup."
+                break
+            selected_items.append((index, product))
+
     if request.method == "POST":
         try:
             save_action = request.POST.get("save_action", "finalize")
             if save_action not in {"pending", "finalize"}:
                 raise ValueError("Unknown save action.")
             with db_transaction.atomic():
+                if save_action == "finalize":
+                    _validate_stock_requirements(
+                        [(product, row_value(order_quantities, index)) for index, product in selected_items],
+                        request.POST.get("confirm_short_stock") if request.POST.get("stock_confirmation_signature") == _stock_confirmation_signature(zip(product_ids, order_quantities)) else None,
+                    )
                 route_name = request.POST.get("route_name", "").strip()
                 route = Route.objects.filter(route_name__iexact=route_name, active=True).first()
                 if not route_name and not request.POST.get("dealer"):
@@ -155,31 +246,6 @@ def sales_entry(request):
                     except IntegrityError:
                         if legacy_invoice_number or attempt == 4:
                             raise
-                product_ids = request.POST.getlist("product_id")
-                order_quantities = request.POST.getlist("order_quantity")
-                return_quantities = request.POST.getlist("return_quantity")
-                foc_quantities = request.POST.getlist("foc_quantity")
-                free_product_quantities = request.POST.getlist("free_product_quantity")
-                discounts = request.POST.getlist("discount")
-                damage_quantities = request.POST.getlist("damage_quantity")
-                def row_value(values, index):
-                    return values[index] if index < len(values) else ""
-
-                selected_items = []
-                for index, product_id in enumerate(product_ids):
-                    if not product_id:
-                        continue
-                    try:
-                        product = Product.objects.get(pk=product_id, active=True)
-                    except (Product.DoesNotExist, ValueError) as exc:
-                        raise ValueError("Select an active product from Product Setup.") from exc
-                    selected_items.append((index, product))
-
-                if save_action == "finalize":
-                    _validate_stock_requirements(
-                        (product, row_value(order_quantities, index)) for index, product in selected_items
-                    )
-
                 for index, product in selected_items:
                     item = SalesItem.objects.create(
                         transaction=sale,
@@ -221,9 +287,36 @@ def sales_entry(request):
                 if save_action == "pending":
                     return redirect(f"{reverse('pending-sales')}?date={sale.date.isoformat()}")
                 return redirect("daily-summary-date", sale.date.isoformat())
+        except StockShortageWarning as exc:
+            stock_warnings = exc.warnings
+            stock_confirmation_signature = _stock_confirmation_signature(zip(product_ids, order_quantities))
+            error = "Stock warning: confirm the quantities below to save anyway."
         except Exception as exc:
             logger.exception("Daily Sales save failed")
             error = str(exc)
+
+    form_rows = []
+    if request.method == "POST":
+        for index in range(len(product_ids)):
+            form_rows.append({
+                "product_id": row_value(product_ids, index),
+                "order_quantity": row_value(order_quantities, index),
+                "return_quantity": row_value(return_quantities, index),
+                "foc_quantity": row_value(foc_quantities, index),
+                "free_product_quantity": row_value(free_product_quantities, index),
+                "discount": row_value(discounts, index),
+                "damage_quantity": row_value(damage_quantities, index),
+            })
+    if not form_rows:
+        form_rows = [{
+            "product_id": "",
+            "order_quantity": "0",
+            "return_quantity": "0",
+            "foc_quantity": "0",
+            "free_product_quantity": "0",
+            "discount": "0",
+            "damage_quantity": "0",
+        }]
     # Keep the route-day choices explicit in the form context. The template
     # renders this list directly, so relying on a broad locals() context makes
     # an empty dropdown too easy to reintroduce during future view changes.
@@ -240,6 +333,9 @@ def sales_entry(request):
         "weekdays": Route.WEEKDAY_CHOICES,
         "pending_count": SalesTransaction.objects.filter(status=SalesTransaction.Status.PENDING, date=selected_date).count(),
         "error": error,
+        "stock_warnings": stock_warnings,
+        "stock_confirmation_signature": stock_confirmation_signature,
+        "form_rows": form_rows,
     }
     context.update(
         currency_count_context(
@@ -314,7 +410,7 @@ def daily_summary(request, report_date=None):
     route_id = request.GET.get("route", "")
     transactions = _finalized_summary_transactions(selected_date, selected_year, selected_month, route_id)
     totals = {
-        "orders": transactions.count(),
+        "orders": transactions.values("invoice_number").distinct().count(),
         "order": sum((sale.order_total for sale in transactions), Decimal("0")),
         "sales": sum((sale.sale_total for sale in transactions), Decimal("0")),
         "returns": sum((sale.return_total for sale in transactions), Decimal("0")),
@@ -378,7 +474,7 @@ def daily_summary(request, report_date=None):
                 },
             )
             detail["sale"] += item.sale_quantity
-            detail["pieces"] += item.sale_quantity * item.ctn_size_snapshot
+            detail["pieces"] += item.sale_quantity
             detail["value"] += item.sale_value
     export_query = f"?year={selected_year}&month={selected_month}{('&route=' + route_id) if route_id else ''}"
     excel_export_url = f"/reports/daily/export/?date={selected_date}" if selected_date else f"/reports/monthly/export/{export_query}"
@@ -409,15 +505,24 @@ def sales_invoice_detail(request, pk):
 def sales_edit(request, pk):
     transaction = get_object_or_404(SalesTransaction.objects.select_related("route").prefetch_related("items", "reconciliation"), pk=pk)
     template_name = "sales/pending_edit.html" if transaction.status == SalesTransaction.Status.PENDING else "sales/edit.html"
+    stock_warnings = []
+    stock_confirmation_signature = ""
     if request.method == "POST":
         try:
             with db_transaction.atomic():
                 transaction = SalesTransaction.objects.select_for_update().get(pk=pk)
                 save_action = request.POST.get("save_action", "pending" if transaction.status == SalesTransaction.Status.PENDING else "finalize")
+                if request.POST.get("confirm_short_stock") == "1":
+                    save_action = "finalize"
                 if save_action not in {"pending", "finalize"}:
                     raise ValueError("Unknown save action.")
-                for item in transaction.items.all():
+                items = list(transaction.items.select_related("product").all())
+                for item in items:
                     item.order_quantity = request.POST.get(f"order_quantity_{item.pk}") or item.order_quantity
+                if save_action == "finalize" or transaction.status == SalesTransaction.Status.FINALIZED:
+                    confirmation = request.POST.get("confirm_short_stock") if request.POST.get("stock_confirmation_signature") == _stock_confirmation_signature((item.pk, item.order_quantity) for item in items) else None
+                    _validate_edit_stock_requirements(transaction, items, confirmation)
+                for item in items:
                     item.return_quantity = request.POST.get(f"return_quantity_{item.pk}") or item.return_quantity
                     # FOC quantity is retained for older invoices even though
                     # the sheet now presents the product's FOC price column.
@@ -438,13 +543,6 @@ def sales_edit(request, pk):
                         damage.save()
                     elif item.damage_quantity > 0:
                         Damage.objects.create(date=transaction.date, product=item.product, quantity=item.damage_quantity, related_transaction=transaction, reason="Updated during invoice edit")
-                if (
-                    transaction.status == SalesTransaction.Status.PENDING
-                    and save_action == "finalize"
-                ):
-                    _validate_stock_requirements(
-                        (item.product, item.order_quantity) for item in transaction.items.select_related("product")
-                    )
                 reconciliation, _ = PaymentReconciliation.objects.get_or_create(transaction=transaction)
                 for field in ("cash", "expenses", "credit", "discount", "others"):
                     setattr(reconciliation, field, request.POST.get(field) or 0)
@@ -467,16 +565,27 @@ def sales_edit(request, pk):
             if transaction.status == SalesTransaction.Status.PENDING:
                 return redirect(f"{reverse('pending-sales')}?date={transaction.date.isoformat()}")
             return redirect("daily-summary-date", transaction.date.isoformat())
-        except Exception as exc:
-            logger.exception("Daily Sales invoice edit failed")
+        except StockShortageWarning as exc:
+            stock_warnings = exc.warnings
+            stock_confirmation_signature = _stock_confirmation_signature((item.pk, request.POST.get(f"order_quantity_{item.pk}") or item.order_quantity) for item in transaction.items.all())
+            error = "Stock warning: confirm the quantities below to save anyway."
             transaction = SalesTransaction.objects.select_related("route").prefetch_related("items", "reconciliation").get(pk=pk)
+            _apply_edit_form_data(transaction, request.POST)
             currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
             template_name = "sales/pending_edit.html" if transaction.status == SalesTransaction.Status.PENDING else "sales/edit.html"
             reconciliation = PaymentReconciliation.objects.filter(transaction=transaction).first()
-            return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "error": str(exc), **currency_count_context(currency_count, request.POST)})
+            return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "error": error, "stock_warnings": stock_warnings, "stock_confirmation_signature": stock_confirmation_signature, "form_data": request.POST, **currency_count_context(currency_count, request.POST)})
+        except Exception as exc:
+            logger.exception("Daily Sales invoice edit failed")
+            transaction = SalesTransaction.objects.select_related("route").prefetch_related("items", "reconciliation").get(pk=pk)
+            _apply_edit_form_data(transaction, request.POST)
+            currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
+            template_name = "sales/pending_edit.html" if transaction.status == SalesTransaction.Status.PENDING else "sales/edit.html"
+            reconciliation = PaymentReconciliation.objects.filter(transaction=transaction).first()
+            return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "error": str(exc), "stock_warnings": stock_warnings, "stock_confirmation_signature": stock_confirmation_signature, "form_data": request.POST, **currency_count_context(currency_count, request.POST)})
     currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
     reconciliation = PaymentReconciliation.objects.filter(transaction=transaction).first()
-    return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, **currency_count_context(currency_count)})
+    return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "stock_warnings": stock_warnings, **currency_count_context(currency_count)})
 
 
 def product_history(request, product_id):

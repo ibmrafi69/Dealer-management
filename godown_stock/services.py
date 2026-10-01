@@ -12,8 +12,8 @@ from .models import GodownStockReceipt
 ZERO = Decimal("0")
 
 
-def _piece_quantity(quantity, pieces_per_ctn):
-    return Decimal(quantity or 0) * Decimal(pieces_per_ctn or 1)
+def _piece_quantity(quantity):
+    return Decimal(quantity or 0)
 
 
 def _display_number(value):
@@ -25,11 +25,11 @@ def _display_number(value):
 
 def stock_display(total_pieces, pieces_per_ctn):
     """Convert the source-of-truth total pieces into the requested CTN + PCS display."""
-    # Godown stock has no assumed opening balance. Older invoices may predate
-    # the receipt ledger, but they must never make the usable balance negative.
-    total_pieces = max(Decimal(total_pieces or 0), ZERO)
+    total_pieces = Decimal(total_pieces or 0)
     per_ctn = Decimal(pieces_per_ctn or 1)
-    cartons, pieces = divmod(total_pieces, per_ctn)
+    sign = -1 if total_pieces < 0 else 1
+    cartons, pieces = divmod(abs(total_pieces), per_ctn)
+    cartons *= sign
     return f"{_display_number(cartons)} CTN {_display_number(pieces)} PCS"
 
 
@@ -47,10 +47,9 @@ def _finalized_items(product_ids):
 def stock_balances(products):
     """Return usable piece balances without inventing opening stock.
 
-    Each product begins at zero. Receipts are the source of stock; a finalized
-    dispatch can only consume stock already present in the ledger. This keeps
-    pre-ledger historical invoices from producing a negative balance or
-    consuming stock received later.
+    Each product begins at zero. Receipts and finalized dispatches are replayed
+    in chronological order, then the final available balance is clamped at
+    zero so overselling never becomes current stock.
     """
     product_ids = [product.pk for product in products]
     events_by_product = defaultdict(list)
@@ -63,25 +62,22 @@ def stock_balances(products):
         )
 
     for item in _finalized_items(product_ids):
-        pieces_per_ctn = item.ctn_size_snapshot or item.product.ctn_size
         occurred_at = _invoice_datetime(item)
-        dispatch = _piece_quantity(item.order_quantity, pieces_per_ctn)
-        returned = _piece_quantity(item.return_quantity, pieces_per_ctn)
+        dispatch = _piece_quantity(item.order_quantity)
+        returned = _piece_quantity(item.return_quantity)
         events_by_product[item.product_id].append((occurred_at, (1, item.pk), -dispatch))
         if returned:
             events_by_product[item.product_id].append((occurred_at, (2, item.pk), returned))
 
     balances = {}
     for product in products:
-        balance = ZERO
-        for _, _, movement in sorted(events_by_product[product.pk]):
-            balance = max(ZERO, balance + movement)
-        balances[product.pk] = balance
+        balance = sum((movement for _, _, movement in sorted(events_by_product[product.pk])), ZERO)
+        balances[product.pk] = max(ZERO, balance)
     return balances
 
 
 def available_stock_pieces(product):
-    """Return the current non-negative usable stock for one Product."""
+    """Return the current stock balance in pieces for one Product."""
     return stock_balances([product]).get(product.pk, ZERO)
 
 
@@ -97,7 +93,7 @@ def stock_rows(products):
             {
                 "product": product,
                 "balance_pieces": balance,
-                "current_stock": stock_display(balance, product.ctn_size),
+                "current_stock": stock_display(balance if balance > 0 else ZERO, product.ctn_size),
                 "status": "In stock" if balance > 0 else "Out of stock",
             }
         )
@@ -128,10 +124,9 @@ def stock_history(product):
         )
 
     for item in _finalized_items([product.pk]):
-        pieces_per_ctn = item.ctn_size_snapshot or product.ctn_size
-        dispatch = _piece_quantity(item.order_quantity, pieces_per_ctn)
-        returned = _piece_quantity(item.return_quantity, pieces_per_ctn)
-        damage = _piece_quantity(item.damage_quantity, pieces_per_ctn)
+        dispatch = _piece_quantity(item.order_quantity)
+        returned = _piece_quantity(item.return_quantity)
+        damage = _piece_quantity(item.damage_quantity)
         occurred_at = _invoice_datetime(item)
         reference = item.transaction.invoice_number
         if dispatch:

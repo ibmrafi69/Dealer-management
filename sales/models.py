@@ -64,9 +64,9 @@ class SalesTransaction(models.Model):
         return sum((getattr(item, field_name) for item in self.items.all()), Decimal("0"))
 
     def _item_piece_total(self, field_name):
-        """Return the carton quantity expressed in pieces from saved CTN sizes."""
+        """Return saved Daily Sales quantities, which are already in pieces."""
         return sum(
-            (getattr(item, field_name) * item.ctn_size_snapshot for item in self.items.all()),
+            (getattr(item, field_name) for item in self.items.all()),
             Decimal("0"),
         )
 
