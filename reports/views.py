@@ -465,6 +465,228 @@ def export_monthly_pdf(request):
     return response
 
 
+def export_monthly_invoices_pdf(request):
+    """Export the saved details of each finalized invoice in the selected period."""
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    group, year, month, route_id, transactions = _filtered_transactions(request)
+    route_label = _route_label(route_id, group)
+    output = BytesIO()
+    document = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        leftMargin=8 * mm,
+        rightMargin=8 * mm,
+        topMargin=12 * mm,
+        bottomMargin=14 * mm,
+        title=f"AAFIA Enterprise Finalized Invoices - {month_name[month]} {year}",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "InvoiceExportTitle",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=14,
+        textColor=colors.HexColor("#123A5A"),
+        alignment=TA_CENTER,
+        spaceAfter=3,
+    )
+    detail_style = ParagraphStyle(
+        "InvoiceExportDetail",
+        parent=styles["Normal"],
+        fontSize=8,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#394B59"),
+        spaceAfter=8,
+    )
+    section_style = ParagraphStyle(
+        "InvoiceExportSection",
+        parent=styles["Heading3"],
+        fontName="Helvetica-Bold",
+        fontSize=10,
+        textColor=colors.HexColor("#123A5A"),
+        spaceBefore=5,
+        spaceAfter=4,
+    )
+    story = [
+        Paragraph("AAFIA ENTERPRISE", title_style),
+        Paragraph("FINALIZED INVOICES", title_style),
+        Paragraph(
+            f"Selected: {month_name[month]} {year} | Route: {escape(route_label)} | Finalized invoices only",
+            detail_style,
+        ),
+    ]
+    transactions = list(transactions)
+    if not transactions:
+        story.append(Paragraph("No finalized invoices for the selected filters.", styles["Normal"]))
+
+    for index, sale in enumerate(transactions):
+        reconciliation = getattr(sale, "reconciliation", None)
+        story.append(Paragraph(f"Invoice {escape(sale.invoice_number)}", section_style))
+        metadata = [
+            ["Date", sale.date.strftime("%d %b %Y"), "Invoice number", sale.invoice_number],
+            ["Route", sale.route_display, "Day", sale.route_day or sale.date.strftime("%A")],
+            ["Dealer", sale.dealer.name if sale.dealer_id else "-", "Notes", sale.notes or "-"],
+        ]
+        metadata_table = Table(metadata, colWidths=[24 * mm, 72 * mm, 29 * mm, 148 * mm])
+        metadata_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#DCEAF3")),
+                    ("BACKGROUND", (2, 0), (2, -1), colors.HexColor("#DCEAF3")),
+                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                    ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                    ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#B8C7D1")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        story.extend([metadata_table, Spacer(1, 6)])
+
+        line_rows = [["Product", "Category / CTN", "Saved prices (Tk)", "Order\nqty", "Return\nqty", "Sale\nqty", "Damage\nqty", "Free\nqty", "Line\ndiscount", "Sale\nvalue"]]
+        for item in sale.items.all():
+            line_rows.append(
+                [
+                    item.product_name_snapshot,
+                    f"{item.category_snapshot or '-'} / {item.ctn_size_snapshot}",
+                    f"Dealer {_format_money(item.dealer_price_snapshot)}\nTrade {_format_money(item.trade_price_snapshot)}\nFOC {_format_money(item.foc_snapshot)}\nSale {_format_money(item.sale_price_snapshot)}",
+                    f"{item.order_quantity:.2f}",
+                    f"{item.return_quantity:.2f}",
+                    f"{item.sale_quantity:.2f}",
+                    f"{item.damage_quantity:.2f}",
+                    f"{item.free_product_quantity:.2f}",
+                    _format_money(item.discount),
+                    _format_money(item.sale_value),
+                ]
+            )
+        if len(line_rows) == 1:
+            line_rows.append(["No product lines were saved on this invoice.", "", "", "", "", "", "", "", "", ""])
+        lines_table = Table(
+            line_rows,
+            colWidths=[43 * mm, 29 * mm, 42 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 23 * mm, 27 * mm],
+            repeatRows=1,
+        )
+        lines_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#123A5A")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7),
+                    ("ALIGN", (3, 0), (-1, -1), "RIGHT"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#B8C7D1")),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F4F8FB")]),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        if len(line_rows) == 2 and not sale.items.exists():
+            lines_table.setStyle(TableStyle([("SPAN", (0, 1), (-1, 1)), ("ALIGN", (0, 1), (-1, 1), "LEFT")]))
+        story.extend([lines_table, Spacer(1, 6)])
+
+        quantity_rows = [
+            ["Sent qty / pcs", "Sale qty / pcs", "Return qty / pcs", "Damage qty / pcs"],
+            [
+                f"{sale.sent_quantity_total:.2f} / {sale.sent_pieces_total:.2f}",
+                f"{sale.sale_quantity_total:.2f} / {sale.sale_pieces_total:.2f}",
+                f"{sale.return_quantity_total:.2f} / {sale.return_pieces_total:.2f}",
+                f"{sale.damage_quantity_total:.2f} / {sale.damage_pieces_total:.2f}",
+            ],
+        ]
+        quantity_table = Table(quantity_rows, colWidths=[55 * mm] * 4)
+        quantity_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DCEAF3")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#B8C7D1")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        financial_rows = [
+            ["Order value", "Total sale", "Total damage", "Discount", "Free product", "Grand total", "Net sale"],
+            [
+                _format_money(sale.order_total),
+                _format_money(sale.sale_total),
+                _format_money(sale.damage_total),
+                _format_money(sale.total_discount),
+                _format_money(sale.free_product_total),
+                _format_money(sale.grand_total_sale),
+                _format_money(sale.net_sale),
+            ],
+        ]
+        financial_table = Table(financial_rows, colWidths=[31 * mm] * 7)
+        financial_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DCEAF3")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#B8C7D1")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        payment_rows = [
+            ["Cash", "Expenses", "Credit", "Payment discount", "Others", "Shortage / variance"],
+            [
+                _format_money(getattr(reconciliation, "cash", Decimal("0"))),
+                _format_money(getattr(reconciliation, "expenses", Decimal("0"))),
+                _format_money(getattr(reconciliation, "credit", Decimal("0"))),
+                _format_money(getattr(reconciliation, "discount", Decimal("0"))),
+                _format_money(getattr(reconciliation, "others", Decimal("0"))),
+                _format_money(getattr(reconciliation, "shortage", sale.grand_total_sale)),
+            ],
+        ]
+        payment_table = Table(payment_rows, colWidths=[36 * mm] * 6)
+        payment_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#DCEAF3")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7.5),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#B8C7D1")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                ]
+            )
+        )
+        story.extend([quantity_table, Spacer(1, 5), financial_table, Spacer(1, 5), payment_table])
+        if index < len(transactions) - 1:
+            story.append(PageBreak())
+
+    def draw_footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#627D8A"))
+        canvas.drawString(doc.leftMargin, 8 * mm, "AAFIA ENTERPRISE - Finalized Invoices")
+        canvas.drawRightString(landscape(A4)[0] - doc.rightMargin, 8 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    document.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
+    response = HttpResponse(output.getvalue(), content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="aafia-invoices-{year}-{month:02d}.pdf"'
+    return response
+
+
 def export_daily(request):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill

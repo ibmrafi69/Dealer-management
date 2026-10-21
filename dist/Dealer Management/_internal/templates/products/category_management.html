@@ -1,0 +1,22 @@
+{% extends "base_app.html" %}
+{% block title %}Manage Categories | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<div class="category-management-page">
+	<header class="app-header">
+		<div><p class="page-kicker">Product setup</p><h1>Manage Categories</h1><p class="setup-subtitle">Categories for {{ current_group.name }} only.</p></div>
+		<div class="setup-header-actions"><a class="outline-button" href="{% url 'product-setup' %}">Back to Product Setup</a></div>
+	</header>
+	{% if messages %}<div class="setup-messages">{% for message in messages %}<p class="setup-message {{ message.tags }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+	{% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+	<section class="setup-card category-manager-card">
+		<div class="catalog-toolbar"><div><p class="page-kicker">{{ current_group.name }}</p><h2>Categories</h2></div><form method="post" class="category-create-form">{% csrf_token %}<input type="hidden" name="action" value="create_category"><input name="category_name" placeholder="New category name" required><button class="dark-button" type="submit">+ Add Category</button></form></div>
+		<div class="category-manager-list">{% for category in categories %}
+			<div class="category-manager-row">
+				<form method="post" class="category-rename-form">{% csrf_token %}<input type="hidden" name="action" value="edit_category"><input type="hidden" name="category_id" value="{{ category.id }}"><input name="category_name" value="{{ category.name }}" required><button class="outline-button" type="submit">Rename</button></form>
+				<span class="status-pill {% if not category.active %}inactive{% endif %}">{% if category.active %}ACTIVE{% else %}INACTIVE{% endif %}</span>
+				<div class="category-manager-actions"><form method="post">{% csrf_token %}<input type="hidden" name="action" value="toggle_category"><input type="hidden" name="category_id" value="{{ category.id }}"><button class="outline-button" type="submit">{% if category.active %}Deactivate{% else %}Activate{% endif %}</button></form><form method="post" onsubmit="return confirm('Delete this category if it has no dependent products or history?');">{% csrf_token %}<input type="hidden" name="action" value="delete_category"><input type="hidden" name="category_id" value="{{ category.id }}"><button class="outline-button" type="submit">Delete</button></form></div>
+			</div>
+		{% empty %}<p class="empty-state">No categories exist for this group yet.</p>{% endfor %}</div>
+	</section>
+</div>
+{% endblock %}

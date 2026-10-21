@@ -1,0 +1,13 @@
+{% extends "base_app.html" %}
+{% block title %}Create Group | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<header class="app-header"><div><p class="page-kicker">Business groups</p><h1>Create New Group</h1><p class="setup-subtitle">New groups start with no products, stock, sales, invoices, or history.</p></div></header>
+{% if error %}<p class="form-error">{{ error }}</p>{% endif %}
+<section class="setup-card">
+    <form method="post" class="product-form">
+        {% csrf_token %}
+        <fieldset><legend>Group information</legend><div class="product-form-grid"><label>Group name<input name="name" required autofocus maxlength="160" value="{{ request.POST.name }}"></label></div></fieldset>
+        <div class="product-form-actions"><button class="dark-button" type="submit">Create group</button><a class="outline-button" href="{% url 'dashboard' %}">Cancel</a></div>
+    </form>
+</section>
+{% endblock %}

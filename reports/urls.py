@@ -8,4 +8,5 @@ urlpatterns = [
     path("monthly/", views.monthly_report, name="monthly-report"),
     path("monthly/export/", views.export_monthly, name="monthly-export"),
     path("monthly/export/pdf/", views.export_monthly_pdf, name="monthly-pdf-export"),
+    path("monthly/export/invoices/pdf/", views.export_monthly_invoices_pdf, name="monthly-invoices-pdf-export"),
 ]

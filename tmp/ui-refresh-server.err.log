@@ -1,0 +1,44 @@
+[21/Oct/2026 14:07:05] "GET / HTTP/1.1" 200 1953
+[21/Oct/2026 14:07:05] "GET /dashboard/ HTTP/1.1" 200 23321
+[21/Oct/2026 14:07:06] "GET /product-setup/ HTTP/1.1" 200 27911
+[21/Oct/2026 14:07:06] "GET /products/categories/ HTTP/1.1" 200 17917
+[21/Oct/2026 14:07:06] "GET /daily-sales/ HTTP/1.1" 200 45937
+[21/Oct/2026 14:07:06] "GET /daily-sales/pending/ HTTP/1.1" 200 4436
+[21/Oct/2026 14:07:06] "GET /daily-summary/ HTTP/1.1" 200 10495
+[21/Oct/2026 14:07:06] "GET /credit/ HTTP/1.1" 200 5202
+[21/Oct/2026 14:07:06] "GET /reports/monthly/ HTTP/1.1" 200 7980
+[21/Oct/2026 14:07:06] "GET /godown-stock/ HTTP/1.1" 200 28738
+[21/Oct/2026 14:07:06] "GET /godown-stock/add/ HTTP/1.1" 200 23006
+[21/Oct/2026 14:07:06] "GET /godown-stock/history/ HTTP/1.1" 200 5692
+[21/Oct/2026 14:07:06] "GET /groups/create/ HTTP/1.1" 200 3659
+[21/Oct/2026 14:07:06] "GET /static/css/site.css HTTP/1.1" 200 40253
+[21/Oct/2026 14:07:07,062] - Broken pipe from ('127.0.0.1', 50165)
+[21/Oct/2026 14:10:09] "GET /dashboard/ HTTP/1.1" 200 23321
+[21/Oct/2026 14:10:09] "GET /static/js/sidebar.js HTTP/1.1" 200 1393
+[21/Oct/2026 14:10:09] "GET /static/css/site.css HTTP/1.1" 200 40253
+[21/Oct/2026 14:10:09] "GET /static/js/prevent_enter_submit.js HTTP/1.1" 200 1451
+[21/Oct/2026 14:10:09] "GET /static/js/numeric_inputs.js HTTP/1.1" 200 658
+Not Found: /favicon.ico
+[21/Oct/2026 14:10:09] "GET /favicon.ico HTTP/1.1" 404 6224
+[21/Oct/2026 14:11:56] "GET /product-setup/ HTTP/1.1" 200 27911
+[21/Oct/2026 14:11:56] "GET /static/js/sidebar.js HTTP/1.1" 200 1393
+[21/Oct/2026 14:11:56] "GET /static/css/site.css HTTP/1.1" 200 40405
+[21/Oct/2026 14:11:56] "GET /static/js/prevent_enter_submit.js HTTP/1.1" 200 1451
+[21/Oct/2026 14:11:56] "GET /static/js/numeric_inputs.js HTTP/1.1" 200 658
+Not Found: /favicon.ico
+[21/Oct/2026 14:11:56] "GET /favicon.ico HTTP/1.1" 404 6224
+[21/Oct/2026 14:12:48] "GET /dashboard/ HTTP/1.1" 200 23321
+[21/Oct/2026 14:12:49] "GET /static/js/sidebar.js HTTP/1.1" 200 1393
+[21/Oct/2026 14:12:49] "GET /static/css/site.css HTTP/1.1" 200 40405
+[21/Oct/2026 14:12:49] "GET /static/js/numeric_inputs.js HTTP/1.1" 200 658
+[21/Oct/2026 14:12:49] "GET /static/js/prevent_enter_submit.js HTTP/1.1" 200 1451
+Not Found: /favicon.ico
+[21/Oct/2026 14:12:49] "GET /favicon.ico HTTP/1.1" 404 6224
+[21/Oct/2026 14:13:38] "GET /daily-sales/ HTTP/1.1" 200 45937
+[21/Oct/2026 14:13:38] "GET /static/css/site.css HTTP/1.1" 200 40348
+[21/Oct/2026 14:13:38] "GET /static/js/sales.js HTTP/1.1" 200 11248
+[21/Oct/2026 14:13:38] "GET /static/js/numeric_inputs.js HTTP/1.1" 200 658
+[21/Oct/2026 14:13:38] "GET /static/js/sidebar.js HTTP/1.1" 200 1393
+[21/Oct/2026 14:13:38] "GET /static/js/prevent_enter_submit.js HTTP/1.1" 200 1451
+Not Found: /favicon.ico
+[21/Oct/2026 14:13:38] "GET /favicon.ico HTTP/1.1" 404 6224

@@ -9,7 +9,7 @@
     </div>
     <div class="setup-header-actions">
         <a class="outline-button" href="{{ excel_export_url }}">{% if selected_date %}Download Excel{% else %}Export Excel{% endif %} &#8595;</a>
-        {% if not selected_date %}<a class="dark-button" href="{{ pdf_export_url }}">Export PDF &#8595;</a>{% endif %}
+        {% if not selected_date %}<a class="dark-button" href="{{ pdf_export_url }}">Export PDF &#8595;</a><a class="outline-button" href="{{ invoices_pdf_export_url }}">Export Invoices PDF &#8595;</a>{% endif %}
     </div>
 </header>
 

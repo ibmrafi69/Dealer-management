@@ -1,20 +1,22 @@
 from calendar import month_name
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from io import BytesIO
 import hashlib
 import logging
 
 from django.db import IntegrityError
 from django.db.models import Count
 from django.db import transaction as db_transaction
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.html import escape
 
 from dealers.context import get_current_group
 from dealers.models import Dealer, Route
 from godown_stock.services import stock_balances, stock_display
-from inventory.models import StockTransaction
+from inventory.models import Damage, StockTransaction
 from products.models import Product
 
 from .models import CURRENCY_DENOMINATIONS, CurrencyCount
@@ -147,6 +149,166 @@ def _apply_edit_form_data(transaction, form_data):
                 setattr(item, field, Decimal(value or 0))
 
 
+def _nonnegative_decimal(value, label):
+    try:
+        quantity = Decimal(str(value or 0))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(f"Enter a valid {label}.") from exc
+    if quantity < 0:
+        raise ValueError(f"{label.capitalize()} cannot be negative.")
+    return quantity
+
+
+def _pending_product_groups(group):
+    products = list(
+        Product.objects.filter(group=group, active=True)
+        .select_related("category")
+        .order_by("category__name", "name")
+    )
+    return [
+        (category.name, [product for product in products if product.category_id == category.id])
+        for category in group.categories.filter(active=True)
+    ]
+
+
+def _set_item_product_snapshot(item, product):
+    item.product = product
+    item.product_id_snapshot = product.pk
+    item.product_name_snapshot = product.name
+    item.category_snapshot = product.category.name
+    item.ctn_size_snapshot = product.ctn_size
+    item.dealer_price_snapshot = product.dealer_price
+    item.trade_price_snapshot = product.trade_price
+    item.sale_price_snapshot = product.effective_sale_price
+    item.foc_snapshot = product.foc
+
+
+def _save_pending_item_rows(transaction, group, form_data):
+    """Save editable PCS-based lines for an existing Pending invoice only."""
+    fields = (
+        "item_id",
+        "product_id",
+        "order_quantity",
+        "return_quantity",
+        "foc_quantity",
+        "free_product_quantity",
+        "damage_quantity",
+        "line_discount",
+    )
+    values = {field: form_data.getlist(field) for field in fields}
+    existing = {item.pk: item for item in transaction.items.select_related("product").all()}
+    rows = []
+    submitted_item_ids = set()
+    selected_product_ids = set()
+
+    for index, product_id in enumerate(values["product_id"]):
+        def value(field, default="0"):
+            return values[field][index] if index < len(values[field]) else default
+
+        if not product_id:
+            if any(
+                _nonnegative_decimal(value(field), field.replace("_", " "))
+                for field in fields[2:]
+            ):
+                raise ValueError("Select a product for every non-empty pending row.")
+            continue
+        try:
+            product = Product.objects.get(pk=product_id, group=group, active=True)
+        except (Product.DoesNotExist, ValueError) as exc:
+            raise ValueError("Select an active product from Product Setup.") from exc
+        if product.pk in selected_product_ids:
+            raise ValueError("A product can appear only once on a pending invoice.")
+        selected_product_ids.add(product.pk)
+
+        item = None
+        raw_item_id = value("item_id", "")
+        if raw_item_id:
+            try:
+                item = existing[int(raw_item_id)]
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("One of the pending product rows is no longer available.") from exc
+            if item.pk in submitted_item_ids:
+                raise ValueError("A pending product row was submitted more than once.")
+            submitted_item_ids.add(item.pk)
+
+        rows.append(
+            {
+                "item": item,
+                "product": product,
+                "order_quantity": _nonnegative_decimal(value("order_quantity"), "order quantity"),
+                "return_quantity": _nonnegative_decimal(value("return_quantity"), "return quantity"),
+                "foc_quantity": _nonnegative_decimal(value("foc_quantity"), "FOC quantity"),
+                "free_product_quantity": _nonnegative_decimal(value("free_product_quantity"), "free product quantity"),
+                "damage_quantity": _nonnegative_decimal(value("damage_quantity"), "damage quantity"),
+                "discount": _nonnegative_decimal(value("line_discount"), "line discount"),
+            }
+        )
+
+    stale_item_ids = set(existing) - submitted_item_ids
+    if stale_item_ids:
+        SalesItem.objects.filter(pk__in=stale_item_ids).delete()
+
+    changed_item_ids = [
+        row["item"].pk
+        for row in rows
+        if row["item"] is not None and row["item"].product_id != row["product"].pk
+    ]
+    if changed_item_ids:
+        # Clear product references first so swapping two existing product rows
+        # cannot violate the one-product-per-invoice constraint mid-save.
+        SalesItem.objects.filter(pk__in=changed_item_ids).update(product=None)
+
+    saved_items = []
+    for row in rows:
+        item = row["item"] or SalesItem(transaction=transaction)
+        if row["item"] is None or item.product_id != row["product"].pk:
+            _set_item_product_snapshot(item, row["product"])
+        for field in (
+            "order_quantity",
+            "return_quantity",
+            "foc_quantity",
+            "free_product_quantity",
+            "damage_quantity",
+            "discount",
+        ):
+            setattr(item, field, row[field])
+        item.save()
+        saved_items.append(item)
+    return saved_items
+
+
+def _pending_stock_confirmation_signature(group, form_data):
+    values = []
+    product_ids = form_data.getlist("product_id")
+    order_quantities = form_data.getlist("order_quantity")
+    for index, product_id in enumerate(product_ids):
+        if not product_id:
+            continue
+        try:
+            product = Product.objects.get(pk=product_id, group=group, active=True)
+        except (Product.DoesNotExist, ValueError):
+            continue
+        quantity = order_quantities[index] if index < len(order_quantities) else "0"
+        values.append((product.pk, quantity))
+    return _stock_confirmation_signature(values)
+
+
+def _record_finalized_inventory_effects(transaction, items):
+    """Apply inventory effects once, when a Daily Sales invoice is finalized."""
+    for item in items:
+        if item.damage_quantity:
+            damage = Damage.objects.create(
+                date=transaction.date,
+                product=item.product,
+                quantity=item.damage_quantity,
+                related_transaction=transaction,
+                reason="Recorded on finalized daily sales invoice",
+            )
+            StockTransaction.record_damage(damage)
+        StockTransaction.record_sale_item(item)
+        StockTransaction.record_return_item(item)
+
+
 def sales_entry(request):
     group = get_current_group(request)
     routes = list(Route.objects.filter(group=group, active=True))
@@ -259,6 +421,7 @@ def sales_entry(request):
                     except IntegrityError:
                         if legacy_invoice_number or attempt == 4:
                             raise
+                items = []
                 for index, product in selected_items:
                     item = SalesItem.objects.create(
                         transaction=sale,
@@ -270,20 +433,7 @@ def sales_entry(request):
                         damage_quantity=row_value(damage_quantities, index) or 0,
                         discount=row_value(discounts, index) or 0,
                     )
-                    damage_quantity = Decimal(row_value(damage_quantities, index) or 0)
-                    if damage_quantity > 0:
-                        from inventory.models import Damage
-
-                        damage = Damage.objects.create(
-                            date=sale.date,
-                            product=item.product,
-                            quantity=damage_quantity,
-                            related_transaction=sale,
-                            reason="Recorded during daily sales entry",
-                        )
-                        StockTransaction.record_damage(damage)
-                    StockTransaction.record_sale_item(item)
-                    StockTransaction.record_return_item(item)
+                    items.append(item)
 
                 currency_count = update_currency_count_from_request(request, CurrencyCount(transaction=sale))
                 PaymentReconciliation.objects.create(
@@ -297,6 +447,8 @@ def sales_entry(request):
                 reconciliation = PaymentReconciliation.objects.get(transaction=sale)
                 reconciliation.cash = currency_count.total_cash
                 reconciliation.save()
+                if save_action == "finalize":
+                    _record_finalized_inventory_effects(sale, items)
                 if save_action == "pending":
                     return redirect(f"{reverse('pending-sales')}?date={sale.date.isoformat()}")
                 return redirect("daily-summary-date", sale.date.isoformat())
@@ -496,11 +648,11 @@ def daily_summary(request, report_date=None):
     export_query = f"?year={selected_year}&month={selected_month}{('&route=' + route_id) if route_id else ''}"
     excel_export_url = f"/reports/daily/export/?date={selected_date}" if selected_date else f"/reports/monthly/export/{export_query}"
     pdf_export_url = f"/reports/monthly/export/pdf/{export_query}"
-    return render(request, "sales/daily_summary.html", {"transactions": transactions, "daily_records": daily_records, "product_details": sorted(product_details.values(), key=lambda detail: (detail["category"], detail["name"].lower())), "totals": totals, "selected_date": selected_date, "selected_year": selected_year, "selected_month": selected_month, "selected_route_id": route_id, "routes": Route.objects.filter(group=group, active=True), "month_options": [(number, month_name[number]) for number in range(1, 13)], "excel_export_url": excel_export_url, "pdf_export_url": pdf_export_url, "period_label": selected_date.strftime("%d %B %Y") if selected_date else f"{month_name[selected_month]} {selected_year}"})
+    invoices_pdf_export_url = f"/reports/monthly/export/invoices/pdf/{export_query}"
+    return render(request, "sales/daily_summary.html", {"transactions": transactions, "daily_records": daily_records, "product_details": sorted(product_details.values(), key=lambda detail: (detail["category"], detail["name"].lower())), "totals": totals, "selected_date": selected_date, "selected_year": selected_year, "selected_month": selected_month, "selected_route_id": route_id, "routes": Route.objects.filter(group=group, active=True), "month_options": [(number, month_name[number]) for number in range(1, 13)], "excel_export_url": excel_export_url, "pdf_export_url": pdf_export_url, "invoices_pdf_export_url": invoices_pdf_export_url, "period_label": selected_date.strftime("%d %B %Y") if selected_date else f"{month_name[selected_month]} {selected_year}"})
 
 
-def sales_invoice_detail(request, pk):
-    """Render a finalized invoice as report history, never as an edit form."""
+def _finalized_invoice_for_current_group(request, pk):
     group = get_current_group(request)
     transaction = get_object_or_404(
         SalesTransaction.objects.filter(group=group, status=SalesTransaction.Status.FINALIZED)
@@ -508,6 +660,12 @@ def sales_invoice_detail(request, pk):
         .prefetch_related("items__product", "damages"),
         pk=pk,
     )
+    return group, transaction
+
+
+def sales_invoice_detail(request, pk):
+    """Render a finalized invoice as report history, never as an edit form."""
+    _, transaction = _finalized_invoice_for_current_group(request, pk)
     currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
     return render(
         request,
@@ -520,9 +678,308 @@ def sales_invoice_detail(request, pk):
     )
 
 
+def sales_invoice_pdf(request, pk):
+    """Render the read-only invoice detail view as a print-ready PDF."""
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    group, transaction = _finalized_invoice_for_current_group(request, pk)
+    reconciliation = getattr(transaction, "reconciliation", None)
+    currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
+    output = BytesIO()
+    document = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        leftMargin=8 * mm,
+        rightMargin=8 * mm,
+        topMargin=12 * mm,
+        bottomMargin=14 * mm,
+        title=f"{transaction.invoice_number} - {group.name}",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "InvoicePdfTitle",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=17,
+        textColor=colors.HexColor("#1D3330"),
+        alignment=TA_CENTER,
+        spaceAfter=3,
+    )
+    kicker_style = ParagraphStyle(
+        "InvoicePdfKicker",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=7,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#3A9C91"),
+        spaceAfter=4,
+    )
+    detail_style = ParagraphStyle(
+        "InvoicePdfDetail",
+        parent=styles["Normal"],
+        fontSize=8,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor("#627D8A"),
+        spaceAfter=12,
+    )
+    metadata_style = ParagraphStyle(
+        "InvoicePdfMetadata",
+        parent=styles["Normal"],
+        fontSize=7.5,
+        leading=9,
+    )
+    product_style = ParagraphStyle(
+        "InvoicePdfProduct",
+        parent=styles["Normal"],
+        fontSize=5.8,
+        leading=6.8,
+    )
+    product_name_style = ParagraphStyle(
+        "InvoicePdfProductName",
+        parent=product_style,
+        fontName="Helvetica-Bold",
+    )
+    header_style = ParagraphStyle(
+        "InvoicePdfHeader",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=5.7,
+        leading=6.5,
+        textColor=colors.HexColor("#627D8A"),
+        alignment=TA_CENTER,
+    )
+    section_title_style = ParagraphStyle(
+        "InvoicePdfSectionTitle",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=10,
+        textColor=colors.HexColor("#1D3330"),
+    )
+    section_caption_style = ParagraphStyle(
+        "InvoicePdfSectionCaption",
+        parent=styles["Normal"],
+        fontSize=7,
+        textColor=colors.HexColor("#627D8A"),
+        alignment=TA_CENTER,
+    )
+
+    def money(value):
+        return f"{value:.2f}"
+
+    def metadata_cell(value):
+        return Paragraph(escape(str(value)), metadata_style)
+
+    def product_cell(value, style=product_style):
+        return Paragraph(escape(str(value)), style)
+
+    def table_header(value):
+        return Paragraph(value, header_style)
+
+    def section_heading(title, caption):
+        table = Table(
+            [[Paragraph(title, section_title_style), Paragraph(caption, section_caption_style)]],
+            colWidths=[180 * mm, 88 * mm],
+        )
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F7FAF9")),
+                    ("LINEBELOW", (0, 0), (-1, -1), 0.6, colors.HexColor("#C8D6D3")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        return table
+
+    story = [
+        Paragraph(escape(group.name), kicker_style),
+        Paragraph(f"Invoice {escape(transaction.invoice_number)}", title_style),
+        Paragraph("FINALIZED - Read-only invoice detail", detail_style),
+        section_heading("Invoice Details", "Saved invoice values"),
+    ]
+    metadata = [
+        [table_header("Date"), table_header("Route"), table_header("Day"), table_header("Invoice Number"), table_header("Notes")],
+        [
+            metadata_cell(transaction.date.strftime("%d %b %Y")),
+            metadata_cell(transaction.route_display),
+            metadata_cell(transaction.route_day or transaction.date.strftime("%A")),
+            metadata_cell(transaction.invoice_number),
+            metadata_cell(transaction.notes),
+        ],
+    ]
+    metadata_table = Table(metadata, colWidths=[38 * mm, 53 * mm, 36 * mm, 57 * mm, 84 * mm], repeatRows=1)
+    metadata_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EDF4F2")),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E9EFEE")),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+    story.extend([metadata_table, Spacer(1, 12), section_heading("Product Lines", "All quantities, prices, and values are preserved from the finalized invoice."), Spacer(1, 4)])
+
+    product_rows = [[
+        table_header("Product"), table_header("Category"), table_header("CTN"), table_header("Dealer<br/>price"),
+        table_header("Trade<br/>price"), table_header("FOC<br/>price"), table_header("Sale<br/>price"),
+        table_header("Order<br/>qty"), table_header("Order<br/>value"), table_header("Return<br/>qty"),
+        table_header("Return<br/>value"), table_header("Sale<br/>qty"), table_header("Sale<br/>value"),
+        table_header("Damage<br/>qty"), table_header("Damage<br/>value"), table_header("Free<br/>product"),
+        table_header("Free<br/>value"), table_header("Line<br/>discount"),
+    ]]
+    items = list(transaction.items.all())
+    for item in items:
+        product_rows.append(
+            [
+                product_cell(item.product_name_snapshot, product_name_style), product_cell(item.category_snapshot), str(item.ctn_size_snapshot),
+                money(item.dealer_price_snapshot), money(item.trade_price_snapshot), money(item.foc_snapshot), money(item.sale_price_snapshot),
+                f"{item.order_quantity:.2f}", money(item.order_value), f"{item.return_quantity:.2f}", money(item.return_value),
+                f"{item.sale_quantity:.2f}", money(item.sale_value), f"{item.damage_quantity:.2f}", money(item.damage_value),
+                f"{item.free_product_quantity:.2f}", money(item.free_product_value), money(item.discount),
+            ]
+        )
+    if not items:
+        product_rows.append(["No product lines were saved on this invoice."] + [""] * 17)
+    products_table = Table(
+        product_rows,
+        colWidths=[26 * mm, 17 * mm, 8 * mm, 15 * mm, 15 * mm, 15 * mm, 15 * mm, 12 * mm, 16 * mm, 12 * mm, 16 * mm, 12 * mm, 16 * mm, 12 * mm, 16 * mm, 12 * mm, 16 * mm, 17 * mm],
+        repeatRows=1,
+    )
+    products_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EDF4F2")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#627D8A")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 5.8),
+                ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E9EFEE")),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    if not items:
+        products_table.setStyle(TableStyle([("SPAN", (0, 1), (-1, 1)), ("ALIGN", (0, 1), (-1, 1), "LEFT")]))
+    story.extend([products_table, Spacer(1, 12), section_heading("Invoice Totals", "Quantity / pieces use the saved invoice CTN size."), Spacer(1, 4)])
+
+    quantity_rows = [
+        [table_header("Sent qty /<br/>pieces"), table_header("Sale qty /<br/>pieces"), table_header("Return qty /<br/>pieces"), table_header("Damage qty /<br/>pieces")],
+        [
+            f"{transaction.sent_quantity_total:.2f} / {transaction.sent_pieces_total:.2f}",
+            f"{transaction.sale_quantity_total:.2f} / {transaction.sale_pieces_total:.2f}",
+            f"{transaction.return_quantity_total:.2f} / {transaction.return_pieces_total:.2f}",
+            f"{transaction.damage_quantity_total:.2f} / {transaction.damage_pieces_total:.2f}",
+        ],
+    ]
+    financial_rows = [
+        [table_header("Order value"), table_header("Total sale"), table_header("Total damage"), table_header("Total discount"), table_header("Free product value"), table_header("Net sale")],
+        [
+            money(transaction.order_total),
+            money(transaction.sale_total),
+            money(transaction.damage_total),
+            money(transaction.total_discount),
+            money(transaction.free_product_total),
+            money(transaction.net_sale),
+        ],
+    ]
+    payment_rows = [
+        [table_header("Grand total sale"), table_header("Cash"), table_header("Expenses"), table_header("Credit"), table_header("Discount"), table_header("Others"), table_header("Shortage / variance")],
+        [
+            money(transaction.grand_total_sale),
+            money(getattr(reconciliation, "cash", Decimal("0"))),
+            money(getattr(reconciliation, "expenses", Decimal("0"))),
+            money(getattr(reconciliation, "credit", Decimal("0"))),
+            money(getattr(reconciliation, "discount", Decimal("0"))),
+            money(getattr(reconciliation, "others", Decimal("0"))),
+            money(getattr(reconciliation, "shortage", transaction.grand_total_sale)),
+        ],
+    ]
+
+    def summary_table(rows, widths, alignment="RIGHT"):
+        table = Table(rows, colWidths=widths)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EDF4F2")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#627D8A")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("ALIGN", (0, 0), (-1, -1), alignment),
+                    ("FONTSIZE", (0, 0), (-1, -1), 6.5),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E9EFEE")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        return table
+
+    story.extend(
+        [
+            summary_table(quantity_rows, [63 * mm] * 4, alignment="CENTER"),
+            Spacer(1, 5),
+            summary_table(financial_rows, [42 * mm] * 6),
+            Spacer(1, 12),
+            section_heading("Payment Reconciliation", "Saved payment details"),
+            Spacer(1, 4),
+            summary_table(payment_rows, [36 * mm] * 7),
+        ]
+    )
+    if currency_count:
+        currency_rows = [[table_header("Note"), table_header("Quantity"), table_header("Total")]]
+        currency_rows.extend([[str(note), str(quantity), money(total)] for note, quantity, total in currency_count.rows])
+        currency_rows.append(["Total cash", "", money(currency_count.total_cash)])
+        currency_table = Table(currency_rows, colWidths=[40 * mm, 40 * mm, 52 * mm], hAlign="LEFT", repeatRows=1)
+        currency_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#D5EBC5")),
+                    ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E7D9A5")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+                    ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#C8D6D3")),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+            )
+        )
+        story.extend([Spacer(1, 12), section_heading("Currency Count", "Saved physical cash count"), Spacer(1, 4), currency_table])
+
+    def draw_footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(colors.HexColor("#627D8A"))
+        canvas.drawString(doc.leftMargin, 8 * mm, f"{group.name} - Invoice {transaction.invoice_number}")
+        canvas.drawRightString(landscape(A4)[0] - doc.rightMargin, 8 * mm, f"Page {doc.page}")
+        canvas.restoreState()
+
+    document.build(story, onFirstPage=draw_footer, onLaterPages=draw_footer)
+    response = HttpResponse(output.getvalue(), content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{transaction.invoice_number}.pdf"'
+    return response
+
+
 def sales_edit(request, pk):
     group = get_current_group(request)
     transaction = get_object_or_404(SalesTransaction.objects.filter(group=group).select_related("route").prefetch_related("items", "reconciliation"), pk=pk)
+
+    def pending_context(current_transaction):
+        if current_transaction.status == SalesTransaction.Status.PENDING:
+            return {"product_groups": _pending_product_groups(group)}
+        return {}
+
     template_name = "sales/pending_edit.html" if transaction.status == SalesTransaction.Status.PENDING else "sales/edit.html"
     stock_warnings = []
     stock_confirmation_signature = ""
@@ -530,38 +987,49 @@ def sales_edit(request, pk):
         try:
             with db_transaction.atomic():
                 transaction = SalesTransaction.objects.select_for_update().get(pk=pk, group=group)
+                was_pending = transaction.status == SalesTransaction.Status.PENDING
                 save_action = request.POST.get("save_action", "pending" if transaction.status == SalesTransaction.Status.PENDING else "finalize")
                 if request.POST.get("confirm_short_stock") == "1":
                     save_action = "finalize"
                 if save_action not in {"pending", "finalize"}:
                     raise ValueError("Unknown save action.")
-                items = list(transaction.items.select_related("product").all())
-                for item in items:
-                    item.order_quantity = request.POST.get(f"order_quantity_{item.pk}") or item.order_quantity
-                if save_action == "finalize" or transaction.status == SalesTransaction.Status.FINALIZED:
-                    confirmation = request.POST.get("confirm_short_stock") if request.POST.get("stock_confirmation_signature") == _stock_confirmation_signature((item.pk, item.order_quantity) for item in items) else None
-                    _validate_edit_stock_requirements(transaction, items, confirmation)
-                for item in items:
-                    item.return_quantity = request.POST.get(f"return_quantity_{item.pk}") or item.return_quantity
-                    # FOC quantity is retained for older invoices even though
-                    # the sheet now presents the product's FOC price column.
-                    item.foc_quantity = request.POST.get(f"foc_quantity_{item.pk}") or item.foc_quantity
-                    item.free_product_quantity = request.POST.get(f"free_product_quantity_{item.pk}") or item.free_product_quantity
-                    item.damage_quantity = request.POST.get(f"damage_quantity_{item.pk}") or item.damage_quantity
-                    item.discount = request.POST.get(f"discount_{item.pk}") or item.discount
-                    item.dealer_price_snapshot = request.POST.get(f"dealer_price_{item.pk}") or item.dealer_price_snapshot
-                    item.trade_price_snapshot = request.POST.get(f"trade_price_{item.pk}") or item.trade_price_snapshot
-                    item.foc_snapshot = request.POST.get(f"foc_price_{item.pk}") or item.foc_snapshot
-                    item.sale_price_snapshot = request.POST.get(f"sale_price_{item.pk}") or item.sale_price_snapshot
-                    item.save()
-                    from inventory.models import Damage
-
-                    damage = Damage.objects.filter(related_transaction=transaction, product=item.product).first()
-                    if damage:
-                        damage.quantity = item.damage_quantity
-                        damage.save()
-                    elif item.damage_quantity > 0:
-                        Damage.objects.create(date=transaction.date, product=item.product, quantity=item.damage_quantity, related_transaction=transaction, reason="Updated during invoice edit")
+                if was_pending and "item_id" in request.POST:
+                    items = _save_pending_item_rows(transaction, group, request.POST)
+                    if save_action == "finalize":
+                        confirmation = (
+                            request.POST.get("confirm_short_stock")
+                            if request.POST.get("stock_confirmation_signature")
+                            == _pending_stock_confirmation_signature(group, request.POST)
+                            else None
+                        )
+                        _validate_edit_stock_requirements(transaction, items, confirmation)
+                else:
+                    items = list(transaction.items.select_related("product").all())
+                    for item in items:
+                        item.order_quantity = request.POST.get(f"order_quantity_{item.pk}") or item.order_quantity
+                    if save_action == "finalize" or transaction.status == SalesTransaction.Status.FINALIZED:
+                        confirmation = request.POST.get("confirm_short_stock") if request.POST.get("stock_confirmation_signature") == _stock_confirmation_signature((item.pk, item.order_quantity) for item in items) else None
+                        _validate_edit_stock_requirements(transaction, items, confirmation)
+                    for item in items:
+                        item.return_quantity = request.POST.get(f"return_quantity_{item.pk}") or item.return_quantity
+                        # FOC quantity is retained for older invoices even though
+                        # the sheet now presents the product's FOC price column.
+                        item.foc_quantity = request.POST.get(f"foc_quantity_{item.pk}") or item.foc_quantity
+                        item.free_product_quantity = request.POST.get(f"free_product_quantity_{item.pk}") or item.free_product_quantity
+                        item.damage_quantity = request.POST.get(f"damage_quantity_{item.pk}") or item.damage_quantity
+                        item.discount = request.POST.get(f"discount_{item.pk}") or item.discount
+                        item.dealer_price_snapshot = request.POST.get(f"dealer_price_{item.pk}") or item.dealer_price_snapshot
+                        item.trade_price_snapshot = request.POST.get(f"trade_price_{item.pk}") or item.trade_price_snapshot
+                        item.foc_snapshot = request.POST.get(f"foc_price_{item.pk}") or item.foc_snapshot
+                        item.sale_price_snapshot = request.POST.get(f"sale_price_{item.pk}") or item.sale_price_snapshot
+                        item.save()
+                        if not was_pending:
+                            damage = Damage.objects.filter(related_transaction=transaction, product=item.product).first()
+                            if damage:
+                                damage.quantity = item.damage_quantity
+                                damage.save()
+                            elif item.damage_quantity > 0:
+                                Damage.objects.create(date=transaction.date, product=item.product, quantity=item.damage_quantity, related_transaction=transaction, reason="Updated during invoice edit")
                 reconciliation, _ = PaymentReconciliation.objects.get_or_create(transaction=transaction)
                 for field in ("cash", "expenses", "credit", "discount", "others"):
                     setattr(reconciliation, field, request.POST.get(field) or 0)
@@ -581,19 +1049,25 @@ def sales_edit(request, pk):
                 else:
                     transaction.status = SalesTransaction.Status.FINALIZED
                 transaction.save(update_fields=["notes", "status", "updated_at"])
+                if was_pending and transaction.status == SalesTransaction.Status.FINALIZED:
+                    _record_finalized_inventory_effects(transaction, items)
             if transaction.status == SalesTransaction.Status.PENDING:
                 return redirect(f"{reverse('pending-sales')}?date={transaction.date.isoformat()}")
             return redirect("daily-summary-date", transaction.date.isoformat())
         except StockShortageWarning as exc:
             stock_warnings = exc.warnings
-            stock_confirmation_signature = _stock_confirmation_signature((item.pk, request.POST.get(f"order_quantity_{item.pk}") or item.order_quantity) for item in transaction.items.all())
+            stock_confirmation_signature = (
+                _pending_stock_confirmation_signature(group, request.POST)
+                if transaction.status == SalesTransaction.Status.PENDING and "item_id" in request.POST
+                else _stock_confirmation_signature((item.pk, request.POST.get(f"order_quantity_{item.pk}") or item.order_quantity) for item in transaction.items.all())
+            )
             error = "Stock warning: confirm the quantities below to save anyway."
             transaction = SalesTransaction.objects.select_related("route").prefetch_related("items", "reconciliation").get(pk=pk)
             _apply_edit_form_data(transaction, request.POST)
             currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
             template_name = "sales/pending_edit.html" if transaction.status == SalesTransaction.Status.PENDING else "sales/edit.html"
             reconciliation = PaymentReconciliation.objects.filter(transaction=transaction).first()
-            return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "error": error, "stock_warnings": stock_warnings, "stock_confirmation_signature": stock_confirmation_signature, "form_data": request.POST, **currency_count_context(currency_count, request.POST)})
+            return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "error": error, "stock_warnings": stock_warnings, "stock_confirmation_signature": stock_confirmation_signature, "form_data": request.POST, **currency_count_context(currency_count, request.POST), **pending_context(transaction)})
         except Exception as exc:
             logger.exception("Daily Sales invoice edit failed")
             transaction = SalesTransaction.objects.select_related("route").prefetch_related("items", "reconciliation").get(pk=pk)
@@ -601,10 +1075,10 @@ def sales_edit(request, pk):
             currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
             template_name = "sales/pending_edit.html" if transaction.status == SalesTransaction.Status.PENDING else "sales/edit.html"
             reconciliation = PaymentReconciliation.objects.filter(transaction=transaction).first()
-            return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "error": str(exc), "stock_warnings": stock_warnings, "stock_confirmation_signature": stock_confirmation_signature, "form_data": request.POST, **currency_count_context(currency_count, request.POST)})
+            return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "error": str(exc), "stock_warnings": stock_warnings, "stock_confirmation_signature": stock_confirmation_signature, "form_data": request.POST, **currency_count_context(currency_count, request.POST), **pending_context(transaction)})
     currency_count = CurrencyCount.objects.filter(transaction=transaction).first()
     reconciliation = PaymentReconciliation.objects.filter(transaction=transaction).first()
-    return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "stock_warnings": stock_warnings, **currency_count_context(currency_count)})
+    return render(request, template_name, {"transaction": transaction, "reconciliation": reconciliation, "stock_warnings": stock_warnings, **currency_count_context(currency_count), **pending_context(transaction)})
 
 
 def product_history(request, product_id):

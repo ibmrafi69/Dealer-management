@@ -1,0 +1,191 @@
+﻿
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Setup | AAFIA ENTERPRISE</title>
+    <link rel="stylesheet" href="/static/css/site.css">
+</head>
+<body class="app-page">
+    <div class="app-shell">
+        <aside class="app-sidebar" id="app-sidebar">
+            <div class="sidebar-header">
+                <a class="app-brand" href="/dashboard/"><span class="app-brand-mark">AE</span><span class="app-brand-copy">AAFIA<br><b>ENTERPRISE</b></span></a>
+                <button class="sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar"><span aria-hidden="true">&laquo;</span></button>
+            </div>
+            <div class="group-switcher">
+                <span class="sidebar-label">Current Group</span>
+                <form method="post" action="/groups/switch/">
+                    <input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf">
+                    <input type="hidden" name="next" value="/product-setup/">
+                    <select name="group_id" onchange="this.form.submit()" aria-label="Current group">
+                        <option value="1" selected>New Zealand Dairy</option><option value="3">BD Foods</option><option value="5">Gold mark</option>
+                    </select>
+                </form>
+                <a href="/groups/create/">+ Create New Group</a>
+                
+            </div>
+            <p class="sidebar-label">Workspace</p>
+            
+            <nav class="side-nav" aria-label="System navigation">
+                <a href="/dashboard/"><span class="nav-number">01</span><span class="nav-label">Dashboard</span></a>
+                <a href="/products/setup/" class="active" aria-current="page"><span class="nav-number">02</span><span class="nav-label">Product Setup</span></a>
+                <a href="/daily-sales/"><span class="nav-number">03</span><span class="nav-label">Daily Sales</span></a>
+                <a href="/credit/"><span class="nav-number">05</span><span class="nav-label">Credit Management</span></a>
+                <a href="/daily-summary/"><span class="nav-number">04</span><span class="nav-label">Monthly Summary</span></a>
+                <a href="/godown-stock/"><span class="nav-number">06</span><span class="nav-label">Godown Stock</span></a>
+            </nav>
+            
+            <a class="back-home" href="/"><span class="back-home-label">Return to landing</span><b>&#8599;</b></a>
+        </aside>
+        <main class="app-main">
+<div class="product-setup-view">
+	<header class="app-header product-setup-header">
+		<div><p class="page-kicker">Product &amp; pricing</p><h1>Product Setup</h1><p class="setup-subtitle">Manage products, pricing and availability.</p></div>
+		<div class="setup-header-actions"><a class="outline-button" href="/daily-sales/">Open daily sales &#8594;</a><a class="dark-button" href="#product-form">+ Add product</a></div>
+	</header>
+	
+	
+	<section class="setup-card" id="product-form">
+		<div class="setup-card-heading"><div><p class="page-kicker">New record</p><h2>Add product</h2></div><span>Workbook-confirmed fields</span></div>
+		<form method="post" class="product-form"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf">
+			<fieldset><legend>Product information</legend><div class="product-form-grid product-info-grid"><label>Category<div class="category-select-row"><select name="category" required><option value="">Select category</option><option value="6">Atta</option><option value="10">Bisct</option><option value="7">Ckrs</option><option value="15">Ghee</option><option value="11">Milk</option><option value="5">Msala</option><option value="12">Ndls</option><option value="2">Oil</option><option value="9">Rice</option><option value="13">Suji</option><option value="16">Wefr</option></select><a class="outline-button" href="/products/categories/">Manage Categories</a></div></label><label>Product name<input name="name" value="" placeholder="Enter product name" required></label><label>Unit<input name="unit" value="unit" placeholder="single, pcs, dozen, pkt, box" required></label><label>Units per CTN<input name="ctn_size" type="number" min="1" step="1" value="1" required></label></div></fieldset>
+			<fieldset><legend>Pricing</legend><div class="product-form-grid"><label>Dealer price<input name="dealer_price" type="number" min="0" step="0.01" value="0" placeholder="0.00" required></label><label>Trade price<input name="trade_price" type="number" min="0" step="0.01" value="0" placeholder="0.00" required></label><label>Sale price<input name="selling_price" type="number" min="0" step="0.01" value="0" placeholder="0.00" required></label><label>Reference dealer price<input name="reference_dealer_price" type="number" min="0" step="0.01" value="0" placeholder="0.00"></label><label>5% add / markup<input name="markup_price" type="number" min="0" step="0.01" value="0" placeholder="0.00"></label></div></fieldset>
+			<fieldset><legend>Other</legend><div class="product-form-grid product-other-grid"><label>FOC<input name="foc" type="number" min="0" step="0.01" value="0" placeholder="0.00"></label></div></fieldset>
+			<div class="product-form-actions"><button class="dark-button" type="submit">Add product</button></div>
+		</form>
+	</section>
+	<section class="setup-card catalog-card"><div class="catalog-toolbar"><div><p class="page-kicker">Current catalog</p><h2>Products</h2></div><form class="catalog-filters" method="get"><label class="search-field"><span>Search product</span><input name="q" value="" placeholder="Name or category"></label><label><span>Category</span><select name="category"><option value="">All categories</option><option value="Atta">Atta</option><option value="Bisct">Bisct</option><option value="Ckrs">Ckrs</option><option value="Ghee">Ghee</option><option value="Milk">Milk</option><option value="Msala">Msala</option><option value="Ndls">Ndls</option><option value="Oil">Oil</option><option value="Rice">Rice</option><option value="Suji">Suji</option><option value="Wefr">Wefr</option></select></label><label><span>Status</span><select name="status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label><button class="outline-button" type="submit">Filter</button></form></div>
+		<div class="table-scroll"><table class="data-table product-table"><thead><tr><th>Category</th><th>Product</th><th>Pieces per CTN</th><th>Dealer price</th><th>Trade price</th><th>Sale price</th><th>FOC</th><th>Status</th><th>Actions</th></tr></thead><tbody><tr><td>Atta</td><td><strong><a href="/sales/products/79/history/">Brown Atta 1kg</a></strong></td><td>24</td><td>58.25</td><td>61.00</td><td>61.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/79/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="79"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="79"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Atta</td><td><strong><a href="/sales/products/77/history/">Farmland Atta 1 kg</a></strong></td><td>24</td><td>47.91</td><td>50.00</td><td>50.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/77/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="77"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="77"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Atta</td><td><strong><a href="/sales/products/78/history/">Farmland Atta 2 kg</a></strong></td><td>12</td><td>95.83</td><td>100.00</td><td>100.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/78/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="78"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="78"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/58/history/">Choco Little(240gm)</a></strong></td><td>12</td><td>87.58</td><td>92.00</td><td>92.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/58/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="58"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="58"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/59/history/">Chocoanoir(240gm)</a></strong></td><td>12</td><td>87.58</td><td>92.00</td><td>92.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/59/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="59"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="59"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/60/history/">Chocolate Fondue(176gm)</a></strong></td><td>12</td><td>109.25</td><td>120.00</td><td>120.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/60/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="60"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="60"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/48/history/">Cremo(320gm)</a></strong></td><td>12</td><td>90.42</td><td>95.00</td><td>95.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/48/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="48"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="48"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/49/history/">Cremo(80gm)</a></strong></td><td>24</td><td>24.50</td><td>26.00</td><td>26.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/49/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="49"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="49"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/43/history/">Digestive Chocolet(135gm)</a></strong></td><td>12</td><td>40.91</td><td>43.00</td><td>43.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/43/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="43"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="43"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/42/history/">Digestive(135gm)</a></strong></td><td>12</td><td>28.00</td><td>29.40</td><td>29.40</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/42/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="42"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="42"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/44/history/">Digestive(214gm)</a></strong></td><td>12</td><td>40.92</td><td>43.00</td><td>43.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/44/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="44"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="44"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/45/history/">Digestive(35gm)</a></strong></td><td>72</td><td>7.61</td><td>8.00</td><td>8.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/45/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="45"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="45"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/61/history/">Dry cake biscuit 25g * 72</a></strong></td><td>72</td><td>7.60</td><td>8.00</td><td>8.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/61/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="61"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="61"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/62/history/">Dry Cake(130gm)</a></strong></td><td>12</td><td>59.00</td><td>62.00</td><td>62.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/62/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="62"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="62"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/63/history/">Dry Cake(290gm)</a></strong></td><td>12</td><td>117.00</td><td>123.00</td><td>126.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/63/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="63"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="63"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/47/history/">Energy Go(19gm)</a></strong></td><td>72</td><td>3.81</td><td>4.00</td><td>4.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/47/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="47"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="47"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/46/history/">Energy Go(62gm)</a></strong></td><td>24</td><td>12.40</td><td>13.00</td><td>13.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/46/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="46"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="46"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/50/history/">Peanut bite (240gm)</a></strong></td><td>12</td><td>55.17</td><td>58.00</td><td>58.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/50/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="50"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="50"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/54/history/">Revoli Butter Cookis 150g</a></strong></td><td>12</td><td>104.00</td><td>110.00</td><td>110.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/54/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="54"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="54"><button type="submit">Deactivate</button></form>
+
+</td></tr><tr><td>Bisct</td><td><strong><a href="/sales/products/57/history/">Revoli Coconut Crunch 145g</a></strong></td><td>12</td><td>114.00</td><td>110.00</td><td>115.00</td><td>0.00</td><td><span class="status-pill ">ACTIVE</span></td><td class="product-actions">
+<a href="/products/setup/57/edit/">Edit</a>
+<form method="post" onsubmit="return confirm('Are you sure you want to delete this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="delete"><input type="hidden" name="product_id" value="57"><button type="submit">Delete</button></form>
+
+<form method="post" onsubmit="return confirm('Are you sure you want to deactivate this product?');"><input type="hidden" name="csrfmiddlewaretoken" value="Yy71yiflnKllyhEUNzY1gQsojGK32WlOrLYxi5cw0BFVLduUtCJJGGvkUpoVPGnf"><input type="hidden" name="action" value="toggle"><input type="hidden" name="product_id" value="57"><button type="submit">Deactivate</button></form>
+
+</td></tr></tbody></table></div>
+		<nav class="product-pagination" aria-label="Product pages"><span>Page 1 of 5</span><a href="?page=2">Next</a></nav>
+	</section>
+	
+</div>
+</main>
+    </div>
+    <script src="/static/js/sidebar.js"></script>
+    <script src="/static/js/numeric_inputs.js"></script>
+    <script src="/static/js/prevent_enter_submit.js"></script>
+</body>
+</html>

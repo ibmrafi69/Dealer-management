@@ -1,0 +1,48 @@
+{% extends "base_app.html" %}
+{% block title %}Monthly Summary | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<header class="app-header">
+    <div>
+        <p class="page-kicker">Reporting history</p>
+        <h1>Monthly Summary</h1>
+        <p class="setup-subtitle">{{ period_label }} - finalized invoices only</p>
+    </div>
+    <div class="setup-header-actions">
+        <a class="outline-button" href="{{ excel_export_url }}">{% if selected_date %}Download Excel{% else %}Export Excel{% endif %} &#8595;</a>
+        {% if not selected_date %}<a class="dark-button" href="{{ pdf_export_url }}">Export PDF &#8595;</a><a class="outline-button" href="{{ invoices_pdf_export_url }}">Export Invoices PDF &#8595;</a>{% endif %}
+    </div>
+</header>
+
+<form class="report-filter" method="get">
+    <label>Month<select name="month">{% for number, label in month_options %}<option value="{{ number }}"{% if number == selected_month %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label>Year<input name="year" type="number" value="{{ selected_year }}"></label>
+    <label>Route<select name="route"><option value="">All routes</option>{% for route in routes %}<option value="{{ route.id }}"{% if selected_route_id == route.id|stringformat:'s' %} selected{% endif %}>{{ route.route_name }}</option>{% endfor %}</select></label>
+    <button class="outline-button" type="submit">Apply filters</button>
+</form>
+
+<div class="metric-grid summary-metrics">
+    <div class="metric-card"><span>Total Orders</span><strong>{{ totals.orders }}</strong></div>
+    <div class="metric-card metric-primary"><span>Total sales</span><strong>{{ totals.sales|floatformat:2 }}</strong></div>
+    <div class="metric-card"><span>Total returns</span><strong>{{ totals.returns|floatformat:2 }}</strong></div>
+    <div class="metric-card"><span>Total damage</span><strong>{{ totals.damage|floatformat:2 }}</strong></div>
+    <div class="metric-card"><span>Total discount</span><strong>{{ totals.discount|floatformat:2 }}</strong></div>
+    <div class="metric-card"><span>Total expenses</span><strong>{{ totals.expenses|floatformat:2 }}</strong></div>
+    <div class="metric-card"><span>Total shortage</span><strong>{{ totals.shortage|floatformat:2 }}</strong></div>
+    <div class="metric-card"><span>Total net sales</span><strong>{{ totals.net|floatformat:2 }}</strong></div>
+</div>
+
+<section class="table-panel">
+    <div class="section-heading"><h2>Cumulative Total</h2><span>All finalized invoices in the selected period</span></div>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Total Sales</th><th>Total Returns</th><th>Total Damage</th><th>Total Discount</th><th>Total Expenses</th><th>Total Shortage</th><th>Total Net Sales</th></tr></thead><tbody><tr><td>{{ totals.sales|floatformat:2 }}</td><td>{{ totals.returns|floatformat:2 }}</td><td>{{ totals.damage|floatformat:2 }}</td><td>{{ totals.discount|floatformat:2 }}</td><td>{{ totals.expenses|floatformat:2 }}</td><td>{{ totals.shortage|floatformat:2 }}</td><td>{{ totals.net|floatformat:2 }}</td></tr></tbody></table></div>
+</section>
+
+<section class="table-panel">
+    <div class="section-heading"><div><h2>Finalized Invoice Records</h2><span>Read-only history. Quantity / pieces use the saved invoice CTN size.</span></div><span>{{ period_label }}</span></div>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Invoice</th><th>Route</th><th>Sent<br>Qty / Pieces</th><th>Sale<br>Qty / Pieces</th><th>Return<br>Qty / Pieces</th><th>Damage<br>Qty / Pieces</th><th>Total Tk</th><th>Shortage</th><th>Status</th><th>Invoice check</th></tr></thead><tbody>{% for row in daily_records %}<tr><td>{{ row.date|date:'d M Y' }}</td><td><a href="{% url 'sales-invoice-detail' row.id %}"><strong>{{ row.invoice }}</strong></a></td><td>{{ row.route }}</td><td>{{ row.sent_quantity|floatformat:2 }} / {{ row.sent_pieces|floatformat:2 }}</td><td>{{ row.sale_quantity|floatformat:2 }} / {{ row.sale_pieces|floatformat:2 }}</td><td>{{ row.return_quantity|floatformat:2 }} / {{ row.return_pieces|floatformat:2 }}</td><td>{{ row.damage_quantity|floatformat:2 }} / {{ row.damage_pieces|floatformat:2 }}</td><td>{{ row.sales|floatformat:2 }}</td><td>{{ row.shortage|floatformat:2 }}</td><td><span class="status-pill">{{ row.status|upper }}</span></td><td><a class="outline-button" href="{% url 'sales-invoice-detail' row.id %}">View Invoice</a></td></tr>{% empty %}<tr><td colspan="11" class="empty-state">No finalized invoices recorded for this period.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+
+<section class="table-panel">
+    <div class="section-heading"><h2>Product-wise Sales</h2><span>Total sold quantity, pieces and value for the selected period</span></div>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Category</th><th>Product</th><th>Sold qty</th><th>Sold pieces</th><th>Total sale (Tk)</th></tr></thead><tbody>{% for row in product_details %}<tr><td>{{ row.category }}</td><td>{{ row.name }}</td><td>{{ row.sale|floatformat:2 }}</td><td>{{ row.pieces|floatformat:2 }}</td><td>{{ row.value|floatformat:2 }}</td></tr>{% empty %}<tr><td colspan="5" class="empty-state">No product lines recorded for this period.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

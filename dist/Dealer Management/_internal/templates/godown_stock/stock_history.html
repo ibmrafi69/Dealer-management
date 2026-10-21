@@ -1,0 +1,17 @@
+{% extends "base_app.html" %}
+{% block title %}Stock Receipt History | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<header class="app-header">
+    <div>
+        <p class="page-kicker">Company stock receipts</p>
+        <h1>{% if product %}{{ product.name }} Challan History{% else %}Challan-wise Stock History{% endif %}</h1>
+        <p class="setup-subtitle">Each entry is a saved stock-receipt challan. Sales, returns, damage, and other inventory movements are not shown here.</p>
+    </div>
+    <div class="setup-header-actions"><a class="outline-button" href="{% url 'godown-stock' %}">Back to Godown Stock</a><a class="dark-button" href="{% url 'godown-add-stock' %}">+ Add Stock</a></div>
+</header>
+
+<section class="table-panel">
+    <div class="section-heading"><div><h2>{% if product %}Challans containing this product{% else %}Stock receipt challans{% endif %}</h2><span>{% if product %}Open a challan to view every product received with it.{% else %}Open a challan to view its received products and quantities.{% endif %}</span></div></div>
+    <div class="table-scroll"><table class="data-table godown-history-table"><thead><tr><th>Challan / Reference</th><th>Entry Date</th><th>Products</th><th>Total Quantity</th><th></th></tr></thead><tbody>{% for challan in challans %}<tr><td><strong>{{ challan.reference }}</strong></td><td>{{ challan.entry_date|date:'d M Y' }}</td><td>{{ challan.product_count }} product{{ challan.product_count|pluralize }}</td><td><strong>{{ challan.total_pieces }} PCS</strong></td><td><a class="outline-button" href="{% url 'godown-stock-history-challan' challan.first_receipt_id %}">View challan</a></td></tr>{% empty %}<tr><td colspan="5" class="empty-state">No challan-based stock receipts have been recorded{% if product %} for this product{% endif %}.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

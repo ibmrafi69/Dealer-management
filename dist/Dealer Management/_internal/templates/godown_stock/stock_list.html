@@ -1,0 +1,32 @@
+{% extends "base_app.html" %}
+{% block title %}Godown Stock | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<header class="app-header">
+    <div>
+        <p class="page-kicker">Real-time inventory</p>
+        <h1>Godown Stock</h1>
+        <p class="setup-subtitle">Calculated from stock receipts and finalized Daily Sales invoices.</p>
+    </div>
+    <div class="setup-header-actions">
+        <a class="outline-button" href="{% url 'godown-stock-history' %}">Stock History</a>
+        <a class="dark-button" href="{% url 'godown-add-stock' %}">+ Add Stock</a>
+    </div>
+</header>
+
+{% if messages %}<div class="setup-messages">{% for message in messages %}<p class="setup-message {{ message.tags }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+
+<form class="report-filter godown-filter" method="get">
+    <label>Search product<input name="q" value="{{ query }}" placeholder="Product name"></label>
+    <label>Category<select name="category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category }}"{% if category_filter == category %} selected{% endif %}>{{ category }}</option>{% endfor %}</select></label>
+    <button class="outline-button" type="submit">Apply filters</button>
+</form>
+
+{% for category, rows in grouped_rows %}
+<section class="table-panel godown-category">
+    <div class="section-heading"><div><p class="page-kicker">Category</p><h2>{{ category }}</h2></div><span>{{ rows|length }} active product{{ rows|length|pluralize }}</span></div>
+    <div class="table-scroll"><table class="data-table godown-table"><thead><tr><th>Product</th><th>1 CTN</th><th>Current Stock</th><th>Status</th><th>History</th></tr></thead><tbody>{% for row in rows %}<tr><td><strong>{{ row.product.name }}</strong></td><td>{{ row.product.pieces_per_ctn }} PCS</td><td><strong>{{ row.current_stock }}</strong></td><td><span class="status-pill {% if row.status == 'Out of stock' %}pending{% elif row.status == 'Stock deficit' %}inactive{% endif %}">{{ row.status|upper }}</span></td><td><a class="outline-button" href="{% url 'godown-stock-history-product' row.product.id %}">View challans</a></td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% empty %}
+<section class="table-panel"><p class="empty-state">No active products match these filters. Add or reactivate products in Product Setup.</p></section>
+{% endfor %}
+{% endblock %}

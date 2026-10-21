@@ -7,5 +7,6 @@ urlpatterns = [
     path("", views.godown_stock, name="godown-stock"),
     path("add/", views.add_stock, name="godown-add-stock"),
     path("history/", views.stock_history_view, name="godown-stock-history"),
+    path("history/challan/<int:receipt_id>/", views.challan_history_detail_view, name="godown-stock-history-challan"),
     path("history/<int:product_id>/", views.stock_history_view, name="godown-stock-history-product"),
 ]

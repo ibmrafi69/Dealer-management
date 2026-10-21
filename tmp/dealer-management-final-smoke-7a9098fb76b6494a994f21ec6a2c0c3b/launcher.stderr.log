@@ -1,0 +1,7 @@
+[02/Oct/2026 10:40:30,335] - Broken pipe from ('127.0.0.1', 64721)
+[02/Oct/2026 10:40:30] "GET / HTTP/1.1" 200 1953
+[02/Oct/2026 10:40:30] "GET / HTTP/1.1" 200 1953
+[02/Oct/2026 10:40:30] "GET /dashboard/ HTTP/1.1" 200 23155
+[02/Oct/2026 10:40:31] "GET /static/css/site.css HTTP/1.1" 200 29143
+[02/Oct/2026 10:40:31] "GET / HTTP/1.1" 200 1953
+[02/Oct/2026 10:40:31] "GET /static/css/site.css HTTP/1.1" 200 29143

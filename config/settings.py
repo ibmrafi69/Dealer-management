@@ -10,10 +10,12 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
-from pathlib import Path
+from config.runtime import DATA_ROOT, RESOURCE_ROOT
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+# Development keeps using the source tree.  The frozen application uses a
+# per-user data directory outside the ONEDIR output, so EXE rebuilds cannot
+# overwrite its database or uploaded files.
+BASE_DIR = DATA_ROOT
 
 
 # Quick-start development settings - unsuitable for production
@@ -60,7 +62,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],
+        "DIRS": [RESOURCE_ROOT / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -122,7 +124,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [BASE_DIR / "static"]
+STATICFILES_DIRS = [RESOURCE_ROOT / "static"]
+# Keep collected assets outside the distributable when the application is
+# frozen, while still giving Django a valid destination for static validation.
+STATIC_ROOT = DATA_ROOT / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 

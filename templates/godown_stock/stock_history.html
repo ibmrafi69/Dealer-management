@@ -1,24 +1,19 @@
 {% extends "base_app.html" %}
-{% block title %}Godown Stock History | AAFIA ENTERPRISE{% endblock %}
+{% block title %}Stock Receipt History | AAFIA ENTERPRISE{% endblock %}
 {% block content %}
 <header class="app-header">
     <div>
-        <p class="page-kicker">Inventory audit trail</p>
-        <h1>{% if product %}{{ product.name }} Stock History{% else %}Stock History{% endif %}</h1>
-        <p class="setup-subtitle">{% if product %}1 CTN = {{ product.pieces_per_ctn }} {{ product.unit }}. Balances are recalculated from saved receipts and finalized invoices.{% else %}Choose a product to view its persisted receipt and finalized-sales movements.{% endif %}</p>
+        <p class="page-kicker">Company stock receipts</p>
+        <h1>{% if product %}{{ product.name }} Challan History{% else %}Challan-wise Stock History{% endif %}</h1>
+        <p class="setup-subtitle">Each entry is a saved stock-receipt challan. Sales, returns, damage, and other inventory movements are not shown here.</p>
     </div>
     <div class="setup-header-actions"><a class="outline-button" href="{% url 'godown-stock' %}">Back to Godown Stock</a><a class="dark-button" href="{% url 'godown-add-stock' %}">+ Add Stock</a></div>
 </header>
 
-{% if product %}
+{% if messages %}<div class="setup-messages">{% for message in messages %}<p class="setup-message {{ message.tags }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+
 <section class="table-panel">
-    <div class="section-heading"><div><h2>Movement ledger</h2><span>Pending invoices are never included.</span></div><span>{{ product.pieces_per_ctn }} {{ product.unit }} / CTN</span></div>
-    <div class="table-scroll"><table class="data-table godown-history-table"><thead><tr><th>Date</th><th>Movement</th><th>Reference</th><th>In (PCS)</th><th>Out (PCS)</th><th>Balance</th><th>Notes</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.occurred_at|date:'d M Y H:i' }}</td><td><strong>{{ event.movement }}</strong></td><td>{{ event.reference }}</td><td>{{ event.in_display }}</td><td>{{ event.out_display }}</td><td><strong>{{ event.balance_display }}</strong></td><td>{{ event.notes|default:'-' }}</td></tr>{% empty %}<tr><td colspan="7" class="empty-state">No stock receipts or finalized sales movements have been recorded for this product.</td></tr>{% endfor %}</tbody></table></div>
+    <div class="section-heading"><div><h2>{% if product %}Challans containing this product{% else %}Stock receipt challans{% endif %}</h2><span>{% if product %}Open a challan to view every product received with it.{% else %}Open a challan to view its received products and quantities.{% endif %}</span></div></div>
+    <div class="table-scroll"><table class="data-table godown-history-table"><thead><tr><th>Challan / Reference</th><th>Entry Date</th><th>Products</th><th>Total Quantity</th><th></th></tr></thead><tbody>{% for challan in challans %}<tr><td><strong>{{ challan.reference }}</strong></td><td>{{ challan.entry_date|date:'d M Y' }}</td><td>{{ challan.product_count }} product{{ challan.product_count|pluralize }}</td><td><strong>{{ challan.total_pieces }} PCS</strong></td><td><a class="outline-button" href="{% url 'godown-stock-history-challan' challan.first_receipt_id %}">View challan</a></td></tr>{% empty %}<tr><td colspan="5" class="empty-state">No challan-based stock receipts have been recorded{% if product %} for this product{% endif %}.</td></tr>{% endfor %}</tbody></table></div>
 </section>
-{% else %}
-<section class="table-panel">
-    <div class="section-heading"><h2>Select a product</h2><span>Only active Product Setup records are shown.</span></div>
-    <div class="table-scroll"><table class="data-table godown-history-select"><thead><tr><th>Category</th><th>Product</th><th>Pieces per CTN</th><th></th></tr></thead><tbody>{% for available_product in products %}<tr><td>{{ available_product.category }}</td><td><strong>{{ available_product.name }}</strong></td><td>{{ available_product.pieces_per_ctn }} PCS</td><td><a class="outline-button" href="{% url 'godown-stock-history-product' available_product.id %}">View history</a></td></tr>{% empty %}<tr><td colspan="4" class="empty-state">No active products are available.</td></tr>{% endfor %}</tbody></table></div>
-</section>
-{% endif %}
 {% endblock %}

@@ -31,7 +31,7 @@ class ExcelProductImportTests(TestCase):
         product = Product.objects.get(name="Diploma 1kg")
         self.assertEqual(product.group.name, "New Zealand Dairy")
         self.assertEqual(Product.objects.filter(group=product.group).count(), 81)
-        self.assertEqual(product.category, "Milk")
+        self.assertEqual(product.category.name, "Milk")
         self.assertEqual(product.ctn_size, 12)
         self.assertEqual(product.dealer_price, Decimal("871.17"))
         self.assertEqual(product.trade_price, Decimal("893"))
@@ -121,7 +121,13 @@ class ExcelProductImportTests(TestCase):
         self.assertEqual(price_history.product_name_snapshot, "Referenced Product")
         self.assertNotContains(self.client.get("/daily-sales/"), "Referenced Product")
         self.assertContains(self.client.get("/daily-summary/?date=2026-09-26"), "Referenced Product")
-        self.assertNotContains(self.client.get("/godown-stock/"), "Referenced Product")
+        # The deletion confirmation intentionally keeps the product name in a
+        # one-time message, so assert against an actual stock-table cell.
+        self.assertNotContains(
+            self.client.get("/godown-stock/"),
+            "<strong>Referenced Product</strong>",
+            html=True,
+        )
         replacement = Product.objects.create(name="Referenced Product", category=Product.MILK, ctn_size=12, selling_price=10)
         self.assertNotEqual(replacement.id, old_product_id)
         self.assertContains(self.client.get("/daily-sales/"), "Referenced Product")

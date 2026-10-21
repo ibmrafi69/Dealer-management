@@ -26,11 +26,15 @@ from sales import views as sales_views
 from dealers import views as group_views
 
 urlpatterns = [
-    path("", views.home, name="home"),
-    path("dashboard/", views.dashboard, name="dashboard"),
+    path("", group_views.group_select, name="home"),
+    path("groups/", group_views.group_select, name="group-select"),
+    path("groups/<int:pk>/open/", group_views.open_group, name="group-open"),
     path("groups/switch/", group_views.switch_group, name="group-switch"),
     path("groups/create/", group_views.create_group, name="group-create"),
     path("groups/<int:pk>/delete/", group_views.delete_group, name="group-delete"),
+    path("logout/", group_views.logout_view, name="logout"),
+    path("landing/", views.home, name="landing"),
+    path("dashboard/", views.dashboard, name="dashboard"),
     path("credit/", group_views.dealer_list, name="dealer-list"),
     path("credit/dealers/new/", group_views.dealer_create, name="dealer-create"),
     path("credit/dealers/<int:pk>/", group_views.dealer_detail, name="dealer-detail"),

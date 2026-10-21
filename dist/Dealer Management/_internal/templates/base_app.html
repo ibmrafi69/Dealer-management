@@ -1,0 +1,48 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}AAFIA ENTERPRISE{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'css/site.css' %}">
+</head>
+<body class="app-page">
+    <div class="app-shell">
+        <aside class="app-sidebar" id="app-sidebar">
+            <div class="sidebar-header">
+                <a class="app-brand" href="{% url 'dashboard' %}"><span class="app-brand-mark">AE</span><span class="app-brand-copy">AAFIA<br><b>ENTERPRISE</b></span></a>
+                <button class="sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="Collapse sidebar" title="Collapse sidebar"><span aria-hidden="true">&laquo;</span></button>
+            </div>
+            <div class="group-switcher">
+                <span class="sidebar-label">Current Group</span>
+                <form method="post" action="{% url 'group-switch' %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                    <select name="group_id" onchange="this.form.submit()" aria-label="Current group">
+                        {% for group in active_groups %}<option value="{{ group.id }}"{% if current_group.id == group.id %} selected{% endif %}>{{ group.name }}</option>{% endfor %}
+                    </select>
+                </form>
+                <a href="{% url 'group-create' %}">+ Create New Group</a>
+                {% if current_group_is_empty %}<form method="post" action="{% url 'group-delete' current_group.id %}" onsubmit="return confirm('Delete this empty group permanently? This action cannot be undone.');">
+                    {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button type="submit" class="group-delete-button">Delete Group</button>
+                </form>{% endif %}
+            </div>
+            <p class="sidebar-label">Workspace</p>
+            <nav class="side-nav" aria-label="System navigation">
+                <a href="{% url 'dashboard' %}"><span class="nav-number">01</span><span class="nav-label">Dashboard</span></a>
+                <a href="{% url 'product-setup' %}"><span class="nav-number">02</span><span class="nav-label">Product Setup</span></a>
+                <a href="{% url 'daily-sales-page' %}"><span class="nav-number">03</span><span class="nav-label">Daily Sales</span></a>
+                <a href="{% url 'dealer-list' %}"><span class="nav-number">05</span><span class="nav-label">Credit Management</span></a>
+                <a href="{% url 'daily-summary-page' %}"><span class="nav-number">04</span><span class="nav-label">Monthly Summary</span></a>
+                <a href="{% url 'godown-stock' %}"><span class="nav-number">06</span><span class="nav-label">Godown Stock</span></a>
+            </nav>
+            <a class="back-home" href="{% url 'home' %}"><span class="back-home-label">Return to landing</span><b>&#8599;</b></a>
+        </aside>
+        <main class="app-main">{% block content %}{% endblock %}</main>
+    </div>
+    <script src="{% static 'js/sidebar.js' %}"></script>
+    <script src="{% static 'js/numeric_inputs.js' %}"></script>
+    <script src="{% static 'js/prevent_enter_submit.js' %}"></script>
+</body>
+</html>

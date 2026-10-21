@@ -1,0 +1,17 @@
+{% extends "base_app.html" %}
+{% block title %}Challan {{ challan }} | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<header class="app-header">
+    <div>
+        <p class="page-kicker">Company stock receipt</p>
+        <h1>Challan {{ challan }}</h1>
+        <p class="setup-subtitle">Received on {{ entry_date|date:'d M Y' }} · {{ product_count }} product{{ product_count|pluralize }} · {{ total_pieces }} PCS total.</p>
+    </div>
+    <div class="setup-header-actions"><a class="outline-button" href="{% url 'godown-stock-history' %}">Back to Challan History</a><a class="dark-button" href="{% url 'godown-add-stock' %}">+ Add Stock</a></div>
+</header>
+
+<section class="table-panel">
+    <div class="section-heading"><div><h2>Received products</h2><span>Quantities are preserved from the original stock receipt.</span></div><span>{{ total_pieces }} PCS total</span></div>
+    <div class="table-scroll"><table class="data-table godown-history-table"><thead><tr><th>Product</th><th>Received CTN</th><th>Received PCS</th><th>Total PCS</th></tr></thead><tbody>{% for receipt in receipts %}<tr><td><strong>{{ receipt.product_name_snapshot|default:receipt.product }}</strong></td><td>{{ receipt.received_ctn }} CTN</td><td>{{ receipt.received_pcs }} PCS</td><td><strong>{{ receipt.total_pieces }} PCS</strong></td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

@@ -6,8 +6,8 @@
 <section class="setup-card">
     <form method="post" class="product-form">
         {% csrf_token %}
-        <fieldset><legend>Group information</legend><div class="product-form-grid"><label>Group name<input name="name" required autofocus maxlength="160" value="{{ request.POST.name }}"></label></div></fieldset>
-        <div class="product-form-actions"><button class="dark-button" type="submit">Create group</button><a class="outline-button" href="{% url 'dashboard' %}">Cancel</a></div>
+        <fieldset><legend>Group information</legend><div class="product-form-grid group-form-grid"><label>Group name<input name="name" required autofocus maxlength="160" value="{{ request.POST.name }}"></label></div></fieldset>
+        <div class="product-form-actions"><button class="dark-button" type="submit">Create group</button><a class="outline-button" href="{% url 'group-select' %}">Cancel</a></div>
     </form>
 </section>
 {% endblock %}

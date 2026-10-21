@@ -1,19 +1,26 @@
 from datetime import date
 from decimal import Decimal
+import os
+from pathlib import Path
 
 from django.db import IntegrityError
 from django.test import TestCase
 
+from dealers.credit import dealer_due
 from dealers.models import Dealer, Route
+from godown_stock.models import GodownStockReceipt
+from godown_stock.services import stock_balances
+from inventory.models import Damage, StockTransaction
 from products.models import Product
 
-from .models import PaymentReconciliation, SalesItem, SalesTransaction
+from .models import CurrencyCount, PaymentReconciliation, SalesItem, SalesTransaction
 
 
 class SalesCalculationTests(TestCase):
     def setUp(self):
-        self.dealer = Dealer.objects.create(name="Test Dealer", code="TEST")
+        self.dealer = Dealer.objects.create(name="Test Dealer", code="TEST", route=Route.objects.get(route_name="Dhalua"))
         self.product = Product.objects.create(name="Milk 1kg", trade_price=Decimal("100"), dealer_price=Decimal("80"))
+        GodownStockReceipt.objects.create(product=self.product, received_ctn=1000, reference="SALES-TEST-STOCK")
 
     def test_transaction_calculations_and_returns(self):
         sale = SalesTransaction.objects.create(dealer=self.dealer, date=date(2026, 9, 26), invoice_number="INV-1")
@@ -92,6 +99,7 @@ class SalesCalculationTests(TestCase):
 
     def test_daily_sales_entry_accepts_multiple_products(self):
         second_product = Product.objects.create(name="Tea", trade_price=50, selling_price=55)
+        GodownStockReceipt.objects.create(product=second_product, received_ctn=100, reference="SALES-TEST-TEA-STOCK")
         response = self.client.post(
             "/sales/",
             {
@@ -113,7 +121,7 @@ class SalesCalculationTests(TestCase):
             },
         )
         self.assertEqual(response.status_code, 302, response.content.decode())
-        sale = SalesTransaction.objects.get(invoice_number="INV-MULTI")
+        sale = SalesTransaction.objects.get(date=date(2026, 9, 26), dealer=self.dealer)
         self.assertEqual(sale.items.count(), 2)
         self.assertEqual(sale.items.get(product=self.product).sale_quantity, Decimal("8.00"))
         self.assertEqual(sale.damages.count(), 1)
@@ -160,7 +168,7 @@ class SalesCalculationTests(TestCase):
         self.assertEqual(route_response.context["daily_records"].__len__(), 1)
         self.assertEqual(route_response.context["totals"]["sales"], Decimal("900"))
 
-    def test_daily_summary_shows_product_sold_pieces_from_invoice_ctn_size(self):
+    def test_daily_summary_shows_stored_total_pieces(self):
         self.product.ctn_size = 12
         self.product.save()
         route = Route.objects.get(route_name="Dhalua")
@@ -177,13 +185,14 @@ class SalesCalculationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         product_total = response.context["product_details"][0]
         self.assertEqual(product_total["sale"], Decimal("8.00"))
-        self.assertEqual(product_total["pieces"], Decimal("96.00"))
+        self.assertEqual(product_total["pieces"], Decimal("8.00"))
         self.assertEqual(product_total["value"], Decimal("800.00"))
         self.assertContains(response, "Sold pieces")
         self.assertContains(response, "Total sale (Tk)")
 
     def test_invoice_summary_link_opens_read_only_finalized_invoice(self):
         product = Product.objects.create(name="Happy Cow 1kg", trade_price=675, selling_price=675)
+        GodownStockReceipt.objects.create(product=product, received_ctn=100, reference="HAPPY-COW-TEST-STOCK")
         morning = self.client.post(
             "/sales/",
             {
@@ -209,7 +218,7 @@ class SalesCalculationTests(TestCase):
         self.assertEqual(invoice_view.status_code, 200)
         self.assertContains(invoice_view, invoice_number)
         self.assertContains(invoice_view, "Read-only invoice detail")
-        self.assertNotContains(invoice_view, "<form")
+        self.assertNotContains(invoice_view, 'id="invoice-edit-form"')
         edit = self.client.get(f"/sales/transactions/{sale.id}/edit/")
         self.assertEqual(edit.status_code, 200)
         item = sale.items.get()
@@ -257,6 +266,45 @@ class SalesCalculationTests(TestCase):
         route_id = sale.route_id
         monthly_after = self.client.get(f"/reports/monthly/?year=2026&month=9&route={route_id}")
         self.assertEqual(monthly_after.context["totals"]["sales"], Decimal("6120.00"))
+
+    def test_finalized_invoice_pdf_exports_only_the_current_saved_invoice(self):
+        sale = SalesTransaction.objects.create(
+            dealer=self.dealer,
+            date=date(2026, 10, 10),
+            invoice_number="AE-20261010-0001",
+            status=SalesTransaction.Status.FINALIZED,
+            notes="Saved invoice note",
+        )
+        SalesItem.objects.create(
+            transaction=sale,
+            product=self.product,
+            order_quantity=10,
+            return_quantity=2,
+            damage_quantity=1,
+            free_product_quantity=1,
+            discount=5,
+        )
+        PaymentReconciliation.objects.create(transaction=sale, cash=500, expenses=10, credit=100, discount=5, others=2)
+        CurrencyCount.objects.create(transaction=sale, quantity_1000=1, quantity_100=2)
+        pending = SalesTransaction.objects.create(
+            dealer=self.dealer,
+            date=date(2026, 10, 10),
+            invoice_number="AE-20261010-0002",
+            status=SalesTransaction.Status.PENDING,
+        )
+
+        detail = self.client.get(f"/sales/transactions/{sale.pk}/")
+        self.assertContains(detail, f'href="/sales/transactions/{sale.pk}/pdf/"')
+        response = self.client.get(f"/sales/transactions/{sale.pk}/pdf/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="AE-20261010-0001.pdf"')
+        self.assertTrue(response.content.startswith(b"%PDF-"))
+        self.assertEqual(self.client.get(f"/sales/transactions/{pending.pk}/pdf/").status_code, 404)
+        if os.environ.get("RENDER_INVOICE_PDF"):
+            Path("tmp/pdfs").mkdir(parents=True, exist_ok=True)
+            Path("tmp/pdfs/finalized-invoice-pdf-preview.pdf").write_bytes(response.content)
 
     def test_price_only_invoice_edit_preserves_saved_quantities(self):
         route = Route.objects.get(route_name="Dhalua")
@@ -475,6 +523,7 @@ class SalesCalculationTests(TestCase):
             trade_price=Decimal("893"),
             selling_price=Decimal("893"),
         )
+        GodownStockReceipt.objects.create(product=product, received_ctn=100, reference="DIPLOMA-TEST-STOCK")
         response = self.client.post(
             "/sales/",
             {
@@ -521,8 +570,9 @@ class SalesCalculationTests(TestCase):
             duplicate.full_clean()
 class CurrencyCountIntegrationTests(TestCase):
     def setUp(self):
-        self.dealer = Dealer.objects.create(name="Currency Dealer", code="CURRENCY")
+        self.dealer = Dealer.objects.create(name="Currency Dealer", code="CURRENCY", route=Route.objects.get(route_name="Dhalua"))
         self.product = Product.objects.create(name="Currency Milk", trade_price=Decimal("100"), selling_price=Decimal("100"))
+        GodownStockReceipt.objects.create(product=self.product, received_ctn=100, reference="CURRENCY-TEST-STOCK")
 
     def currency_counts(self):
         return {
@@ -558,7 +608,7 @@ class CurrencyCountIntegrationTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 302)
-        sale = SalesTransaction.objects.get(invoice_number="CURRENCY-1")
+        sale = SalesTransaction.objects.get(date=date(2026, 10, 1), dealer=self.dealer)
         self.assertEqual(sale.currency_count.total_cash, Decimal("42710.00"))
         self.assertEqual(sale.reconciliation.cash, Decimal("42710.00"))
         self.assertEqual(sale.reconciliation.shortage, Decimal("-42610.00"))
@@ -634,12 +684,47 @@ class RouteEntryTests(TestCase):
 class PendingSalesWorkflowTests(TestCase):
     def setUp(self):
         self.route = Route.objects.get(route_name="Dhalua")
-        self.product = Product.objects.create(name="Pending Milk", trade_price=Decimal("100"), selling_price=Decimal("100"))
+        self.dealer = Dealer.objects.create(name="Pending Dealer", code="PENDING-TEST", route=self.route)
+        self.product = Product.objects.create(name="Pending Milk", ctn_size=20, trade_price=Decimal("100"), selling_price=Decimal("100"))
+        GodownStockReceipt.objects.create(product=self.product, received_ctn=1, reference="PENDING-TEST-STOCK")
 
-    def test_pending_invoice_reopens_without_duplication_and_finalizes_into_monthly_summary(self):
+    def pending_line_payload(self, item_id, product_id, order_quantity, *, save_action):
+        return {
+            "item_id": [item_id],
+            "product_id": [product_id],
+            "order_quantity": [order_quantity],
+            "return_quantity": ["2"],
+            "foc_quantity": ["0"],
+            "free_product_quantity": ["1"],
+            "damage_quantity": ["1"],
+            "line_discount": ["5"],
+            "cash": "0",
+            "expenses": "0",
+            "credit": "600",
+            "discount": "0",
+            "others": "0",
+            "save_action": save_action,
+        }
+
+    def test_pending_invoice_edits_its_existing_line_and_finalizes_once(self):
+        replacement = Product.objects.create(name="Pending Tea", ctn_size=10, trade_price=Decimal("50"), selling_price=Decimal("50"))
+        GodownStockReceipt.objects.create(product=replacement, received_ctn=2, reference="PENDING-TEA-STOCK")
         response = self.client.post(
             "/daily-sales/",
-            {"date": "2026-10-05", "route_name": self.route.route_name, "product_id": [self.product.id], "order_quantity": ["10"], "return_quantity": ["0"], "foc_quantity": ["0"], "free_product_quantity": ["0"], "damage_quantity": ["0"], "discount": ["0"], "save_action": "pending"},
+            {
+                "date": "2026-10-05",
+                "route_name": self.route.route_name,
+                "dealer": self.dealer.id,
+                "product_id": [self.product.id],
+                "order_quantity": ["10"],
+                "return_quantity": ["0"],
+                "foc_quantity": ["0"],
+                "free_product_quantity": ["0"],
+                "damage_quantity": ["1"],
+                "discount": ["0"],
+                "credit": "600",
+                "save_action": "pending",
+            },
         )
         self.assertEqual(response.status_code, 302)
         sale = SalesTransaction.objects.get(date=date(2026, 10, 5), route=self.route)
@@ -648,15 +733,40 @@ class PendingSalesWorkflowTests(TestCase):
         item = sale.items.get()
         self.assertEqual(sale.items.count(), 1)
         self.assertEqual(item.sale_price_snapshot, Decimal("100.00"))
+        self.assertEqual(StockTransaction.objects.filter(reference=invoice_number).count(), 0)
+        self.assertEqual(Damage.objects.filter(related_transaction=sale).count(), 0)
+        self.assertEqual(stock_balances([self.product])[self.product.pk], Decimal("20"))
+        self.assertEqual(dealer_due(self.dealer), Decimal("0"))
         summary = self.client.get("/daily-summary/?year=2026&month=10")
         self.assertNotContains(summary, invoice_number)
         pending_list = self.client.get("/daily-sales/pending/?date=2026-10-05")
         self.assertContains(pending_list, invoice_number)
         pending_edit = self.client.get(f"/sales/transactions/{sale.id}/edit/")
         self.assertEqual(pending_edit.status_code, 200)
+        self.assertContains(pending_edit, 'data-action="edit-pending-row"')
+        self.assertContains(pending_edit, 'data-action="save-pending-row"')
+
         response = self.client.post(
             f"/sales/transactions/{sale.id}/edit/",
-            {"notes": "Evening close-out", f"return_quantity_{item.id}": "2", f"damage_quantity_{item.id}": "1", f"free_product_quantity_{item.id}": "1", f"discount_{item.id}": "5", "cash": "600", "expenses": "0", "credit": "0", "discount": "0", "others": "0", "save_action": "finalize"},
+            self.pending_line_payload(item.id, replacement.id, "12", save_action="pending"),
+        )
+        self.assertEqual(response.status_code, 302)
+        sale.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(sale.status, SalesTransaction.Status.PENDING)
+        self.assertEqual(sale.items.count(), 1)
+        self.assertEqual(item.pk, sale.items.get().pk)
+        self.assertEqual(item.product, replacement)
+        self.assertEqual(item.order_quantity, Decimal("12.00"))
+        self.assertEqual(item.sale_quantity, Decimal("9.00"))
+        self.assertEqual(StockTransaction.objects.filter(reference=invoice_number).count(), 0)
+        self.assertEqual(Damage.objects.filter(related_transaction=sale).count(), 0)
+        self.assertEqual(stock_balances([replacement])[replacement.pk], Decimal("20"))
+        self.assertEqual(dealer_due(self.dealer), Decimal("0"))
+
+        response = self.client.post(
+            f"/sales/transactions/{sale.id}/edit/",
+            self.pending_line_payload(item.id, replacement.id, "12", save_action="finalize"),
         )
         self.assertEqual(response.status_code, 302)
         sale.refresh_from_db()
@@ -665,8 +775,87 @@ class PendingSalesWorkflowTests(TestCase):
         item.refresh_from_db()
         self.assertEqual(item.return_quantity, Decimal("2.00"))
         self.assertEqual(item.damage_quantity, Decimal("1.00"))
-        self.assertEqual(item.sale_quantity, Decimal("7.00"))
+        self.assertEqual(item.sale_quantity, Decimal("9.00"))
+        self.assertEqual(StockTransaction.objects.filter(reference=invoice_number).count(), 3)
+        self.assertEqual(Damage.objects.filter(related_transaction=sale).count(), 1)
+        self.assertEqual(stock_balances([replacement])[replacement.pk], Decimal("10"))
+        self.assertEqual(dealer_due(self.dealer), Decimal("500.00"))
         finalized_summary = self.client.get("/daily-summary/?year=2026&month=10")
         self.assertContains(finalized_summary, invoice_number)
         pending_list_after = self.client.get("/daily-sales/pending/?date=2026-10-05")
         self.assertNotContains(pending_list_after, invoice_number)
+        finalized_edit = self.client.get(f"/sales/transactions/{sale.id}/edit/")
+        self.assertNotContains(finalized_edit, 'data-action="edit-pending-row"')
+
+        response = self.client.post(
+            f"/sales/transactions/{sale.id}/edit/",
+            {
+                f"return_quantity_{item.id}": "2",
+                f"damage_quantity_{item.id}": "1",
+                f"free_product_quantity_{item.id}": "1",
+                f"discount_{item.id}": "5",
+                "cash": "0",
+                "expenses": "0",
+                "credit": "600",
+                "discount": "0",
+                "others": "0",
+                "save_action": "finalize",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(StockTransaction.objects.filter(reference=invoice_number).count(), 3)
+
+    def test_pending_invoice_can_add_and_remove_product_rows(self):
+        added_product = Product.objects.create(name="Pending Yogurt", ctn_size=10, trade_price=Decimal("60"), selling_price=Decimal("60"))
+        GodownStockReceipt.objects.create(product=added_product, received_ctn=2, reference="PENDING-YOGURT-STOCK")
+        self.client.post(
+            "/daily-sales/",
+            {
+                "date": "2026-10-06",
+                "route_name": self.route.route_name,
+                "product_id": [self.product.id],
+                "order_quantity": ["2"],
+                "return_quantity": ["0"],
+                "foc_quantity": ["0"],
+                "free_product_quantity": ["0"],
+                "damage_quantity": ["0"],
+                "discount": ["0"],
+                "save_action": "pending",
+            },
+        )
+        sale = SalesTransaction.objects.get(date=date(2026, 10, 6), route=self.route)
+        item = sale.items.get()
+        add_payload = {
+            "item_id": [item.id, ""],
+            "product_id": [self.product.id, added_product.id],
+            "order_quantity": ["2", "3"],
+            "return_quantity": ["0", "0"],
+            "foc_quantity": ["0", "0"],
+            "free_product_quantity": ["0", "0"],
+            "damage_quantity": ["0", "0"],
+            "line_discount": ["0", "0"],
+            "save_action": "pending",
+        }
+        response = self.client.post(f"/sales/transactions/{sale.id}/edit/", add_payload)
+        self.assertEqual(response.status_code, 302)
+        sale.refresh_from_db()
+        self.assertEqual(sale.items.count(), 2)
+        self.assertEqual(sale.items.get(product=self.product).pk, item.pk)
+
+        remove_payload = {
+            "item_id": [item.id],
+            "product_id": [self.product.id],
+            "order_quantity": ["2"],
+            "return_quantity": ["0"],
+            "foc_quantity": ["0"],
+            "free_product_quantity": ["0"],
+            "damage_quantity": ["0"],
+            "line_discount": ["0"],
+            "save_action": "pending",
+        }
+        response = self.client.post(f"/sales/transactions/{sale.id}/edit/", remove_payload)
+        self.assertEqual(response.status_code, 302)
+        sale.refresh_from_db()
+        self.assertEqual(sale.items.count(), 1)
+        self.assertEqual(sale.items.get().pk, item.pk)
+        self.assertEqual(StockTransaction.objects.filter(reference=sale.invoice_number).count(), 0)

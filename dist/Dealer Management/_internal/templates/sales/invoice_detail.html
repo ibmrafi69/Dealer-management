@@ -1,0 +1,40 @@
+{% extends "base_app.html" %}
+{% block title %}Invoice {{ transaction.invoice_number }} | AAFIA ENTERPRISE{% endblock %}
+{% block content %}
+<header class="app-header">
+    <div>
+        <p class="page-kicker">Finalized sales history</p>
+        <h1>Invoice {{ transaction.invoice_number }}</h1>
+        <p class="setup-subtitle"><span class="status-pill">FINALIZED</span> Read-only invoice detail</p>
+    </div>
+    <div class="setup-header-actions"><a class="outline-button" href="{% url 'daily-summary-page' %}?year={{ transaction.date|date:'Y' }}&month={{ transaction.date|date:'n' }}">Back to Monthly Summary</a><a class="dark-button" href="{% url 'sales-invoice-pdf' transaction.pk %}">Export Invoice PDF &#8595;</a></div>
+</header>
+
+<section class="form-panel">
+    <div class="section-heading"><h2>Invoice details</h2><span>Saved invoice values</span></div>
+    <div class="meta-grid">
+        <label>Date<input value="{{ transaction.date|date:'d M Y' }}" readonly></label>
+        <label>Route<input value="{{ transaction.route_display }}" readonly></label>
+        <label>Day<input value="{{ transaction.route_day|default:transaction.date|date:'l' }}" readonly></label>
+        <label>Invoice Number<input value="{{ transaction.invoice_number }}" readonly></label>
+        <label>Notes<input value="{{ transaction.notes }}" readonly></label>
+    </div>
+</section>
+
+<section class="table-panel">
+    <div class="section-heading"><div><h2>Product lines</h2><span>All quantities, prices, and values are preserved from the finalized invoice.</span></div></div>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Product</th><th>Category</th><th>CTN</th><th>Dealer price</th><th>Trade price</th><th>FOC price</th><th>Sale price</th><th>Order qty</th><th>Order value</th><th>Return qty</th><th>Return value</th><th>Sale qty</th><th>Sale value</th><th>Damage qty</th><th>Damage value</th><th>Free product</th><th>Free value</th><th>Line discount</th></tr></thead><tbody>{% for item in transaction.items.all %}<tr><td><strong>{{ item.product_name_snapshot }}</strong></td><td>{{ item.category_snapshot }}</td><td>{{ item.ctn_size_snapshot }}</td><td>{{ item.dealer_price_snapshot|floatformat:2 }}</td><td>{{ item.trade_price_snapshot|floatformat:2 }}</td><td>{{ item.foc_snapshot|floatformat:2 }}</td><td>{{ item.sale_price_snapshot|floatformat:2 }}</td><td>{{ item.order_quantity|floatformat:2 }}</td><td>{{ item.order_value|floatformat:2 }}</td><td>{{ item.return_quantity|floatformat:2 }}</td><td>{{ item.return_value|floatformat:2 }}</td><td>{{ item.sale_quantity|floatformat:2 }}</td><td>{{ item.sale_value|floatformat:2 }}</td><td>{{ item.damage_quantity|floatformat:2 }}</td><td>{{ item.damage_value|floatformat:2 }}</td><td>{{ item.free_product_quantity|floatformat:2 }}</td><td>{{ item.free_product_value|floatformat:2 }}</td><td>{{ item.discount|floatformat:2 }}</td></tr>{% empty %}<tr><td colspan="18" class="empty-state">No product lines were saved on this invoice.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+
+<section class="table-panel">
+    <div class="section-heading"><h2>Invoice totals</h2><span>Quantity / pieces use the saved CTN size.</span></div>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Sent qty / pieces</th><th>Sale qty / pieces</th><th>Return qty / pieces</th><th>Damage qty / pieces</th><th>Order value</th><th>Total sale</th><th>Total damage</th><th>Total discount</th><th>Free product value</th><th>Net sale</th></tr></thead><tbody><tr><td>{{ transaction.sent_quantity_total|floatformat:2 }} / {{ transaction.sent_pieces_total|floatformat:2 }}</td><td>{{ transaction.sale_quantity_total|floatformat:2 }} / {{ transaction.sale_pieces_total|floatformat:2 }}</td><td>{{ transaction.return_quantity_total|floatformat:2 }} / {{ transaction.return_pieces_total|floatformat:2 }}</td><td>{{ transaction.damage_quantity_total|floatformat:2 }} / {{ transaction.damage_pieces_total|floatformat:2 }}</td><td>{{ transaction.order_total|floatformat:2 }}</td><td>{{ transaction.sale_total|floatformat:2 }}</td><td>{{ transaction.damage_total|floatformat:2 }}</td><td>{{ transaction.total_discount|floatformat:2 }}</td><td>{{ transaction.free_product_total|floatformat:2 }}</td><td>{{ transaction.net_sale|floatformat:2 }}</td></tr></tbody></table></div>
+</section>
+
+<section class="table-panel">
+    <div class="section-heading"><h2>Payment reconciliation</h2><span>Saved payment details</span></div>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Grand total sale</th><th>Cash</th><th>Expenses</th><th>Credit</th><th>Discount</th><th>Others</th><th>Shortage / variance</th></tr></thead><tbody><tr><td>{{ transaction.grand_total_sale|floatformat:2 }}</td><td>{{ reconciliation.cash|default:0|floatformat:2 }}</td><td>{{ reconciliation.expenses|default:0|floatformat:2 }}</td><td>{{ reconciliation.credit|default:0|floatformat:2 }}</td><td>{{ reconciliation.discount|default:0|floatformat:2 }}</td><td>{{ reconciliation.others|default:0|floatformat:2 }}</td><td>{{ reconciliation.shortage|default:transaction.grand_total_sale|floatformat:2 }}</td></tr></tbody></table></div>
+</section>
+
+{% if has_currency_count %}<section class="table-panel"><div class="section-heading"><h2>Currency count</h2><span>Saved physical cash count</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Note</th><th>Quantity</th><th>Total</th></tr></thead><tbody>{% for denomination, count, total in currency_denominations %}<tr><td>{{ denomination }}</td><td>{{ count }}</td><td>{{ total|floatformat:2 }}</td></tr>{% endfor %}</tbody><tfoot><tr><th colspan="2">Total cash</th><th>{{ currency_total_cash|floatformat:2 }}</th></tr></tfoot></table></div></section>{% endif %}
+{% endblock %}

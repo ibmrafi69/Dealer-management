@@ -122,13 +122,58 @@
         updateRow(row);
     }
 
+    const setActiveRow = (row) => {
+        rows.querySelectorAll('.sales-row.active-row, .sales-row.active-entry-row').forEach((r) => {
+            if (r !== row) r.classList.remove('active-row', 'active-entry-row');
+        });
+        if (row) {
+            row.classList.add('active-row', 'active-entry-row');
+        }
+    };
+
     addButton.addEventListener('click', () => {
         const row = rows.querySelector('.sales-row').cloneNode(true);
+        row.classList.remove('active-row', 'active-entry-row');
         row.querySelector('.product-select').innerHTML = '<option value="">Select product</option>' + optionTemplate.innerHTML;
         row.querySelectorAll('input').forEach((input) => { input.value = '0'; });
         row.querySelectorAll('.calc').forEach((cell) => { cell.textContent = cell.classList.contains('category-cell') || cell.classList.contains('ctn-cell') || cell.classList.contains('dealer-price') || cell.classList.contains('trade-price') || cell.classList.contains('foc-price') || cell.classList.contains('sale-price') ? '-' : '0.00'; });
         rows.appendChild(row);
         bindRow(row);
+        const newSelect = row.querySelector('.product-select');
+        if (newSelect) {
+            newSelect.focus();
+        }
+    });
+
+    rows.addEventListener('focusin', (e) => {
+        const row = e.target.closest && e.target.closest('.sales-row');
+        if (row) {
+            setActiveRow(row);
+        }
+    });
+    rows.addEventListener('focusout', (e) => {
+        const row = e.target.closest && e.target.closest('.sales-row');
+        if (row && !row.contains(e.relatedTarget)) {
+            row.classList.remove('active-row', 'active-entry-row');
+        }
+    });
+    rows.addEventListener('click', (e) => {
+        const row = e.target.closest && e.target.closest('.sales-row');
+        if (row) {
+            setActiveRow(row);
+        }
+        const editableCell = e.target.closest && e.target.closest('td.col-editable');
+        if (editableCell && e.target.tagName !== 'INPUT') {
+            const input = editableCell.querySelector('input');
+            if (input) input.focus();
+        }
+    });
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#sales-rows') && !e.target.closest('#add-row')) {
+            rows.querySelectorAll('.sales-row.active-row, .sales-row.active-entry-row').forEach((r) => {
+                r.classList.remove('active-row', 'active-entry-row');
+            });
+        }
     });
 
     document.querySelectorAll('.recon-input').forEach((input) => input.addEventListener('input', updateTotals));

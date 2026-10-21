@@ -1,0 +1,891 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Business Portfolio | AE AAFIA ENTERPRISE</title>
+    <!-- Link to external stylesheet with cache-buster -->
+    <link rel="stylesheet" href="{% static 'css/site.css' %}?v=20261021">
+    <style>
+    /* Complete self-contained styling for Portfolio Page matching reference screenshot */
+    .portfolio-page {
+        background-color: #F7F9FE;
+        background-image:
+            radial-gradient(circle at 10% 15%, rgba(224, 242, 254, 0.45) 0%, transparent 40%),
+            radial-gradient(circle at 90% 12%, rgba(219, 234, 254, 0.5) 0%, transparent 45%),
+            radial-gradient(circle at 50% 90%, rgba(240, 245, 255, 0.6) 0%, transparent 60%);
+        min-height: 100vh;
+        color: #13264B;
+        font-family: Inter, "Segoe UI", Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        position: relative;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+    }
+    .portfolio-bg-decor {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        overflow: hidden;
+    }
+    .decor-circle-top-right {
+        position: absolute;
+        top: 90px;
+        right: -90px;
+        width: 480px;
+        height: 480px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(219, 234, 254, 0.55) 0%, rgba(240, 246, 255, 0.15) 55%, transparent 75%);
+    }
+    .decor-circle-hero-left {
+        position: absolute;
+        top: 220px;
+        left: -70px;
+        width: 380px;
+        height: 380px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(224, 242, 254, 0.45) 0%, rgba(240, 248, 255, 0.15) 55%, transparent 75%);
+    }
+    .decor-dots-left {
+        position: absolute;
+        top: 175px;
+        left: 28px;
+        width: 60px;
+        height: 120px;
+        background-image: radial-gradient(#BFDBFE 2px, transparent 2px);
+        background-size: 18px 18px;
+        opacity: 0.75;
+    }
+    .decor-dots-right {
+        position: absolute;
+        bottom: 55px;
+        right: 28px;
+        width: 80px;
+        height: 60px;
+        background-image: radial-gradient(#BFDBFE 2px, transparent 2px);
+        background-size: 18px 18px;
+        opacity: 0.75;
+    }
+    .portfolio-container {
+        width: calc(100% - 176px);
+        max-width: 1544px;
+        margin-left: auto;
+        margin-right: auto;
+        box-sizing: border-box;
+        position: relative;
+        z-index: 10;
+    }
+    .main-content-flow {
+        flex: 1;
+        padding-bottom: 48px;
+    }
+    .portfolio-navbar {
+        width: 100%;
+        height: 86px;
+        background: #FFFFFF;
+        border-bottom: 1px solid #E6ECF5;
+        position: relative;
+        z-index: 20;
+        box-sizing: border-box;
+    }
+    .navbar-inner {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .portfolio-brand {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        text-decoration: none;
+    }
+    .brand-logo {
+        width: 44px;
+        height: 44px;
+        background: #2878F0;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        box-shadow: 0 4px 10px rgba(40, 120, 240, 0.25);
+    }
+    .brand-text {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        line-height: 1;
+    }
+    .brand-name {
+        font-size: 20px;
+        font-weight: 750;
+        color: #14264A;
+        letter-spacing: -0.01em;
+    }
+    .brand-subtitle {
+        font-size: 14px;
+        color: #647899;
+        font-weight: 450;
+    }
+    .return-landing-btn {
+        height: 52px;
+        padding: 0 24px;
+        background: #FFFFFF;
+        border: 1px solid #C8D9FF;
+        border-radius: 15px;
+        color: #3568B8;
+        font-size: 15px;
+        font-weight: 600;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+        box-sizing: border-box;
+    }
+    .return-landing-btn:hover {
+        background: #EFF5FF;
+        border-color: #AEC8FF;
+        transform: translateY(-1px);
+    }
+    .btn-arrow-left {
+        font-size: 16px;
+        line-height: 1;
+    }
+    .portfolio-message {
+        width: 100%;
+        margin-top: 12px;
+        min-height: 68px;
+        padding: 14px 22px;
+        background: #EAF8F2;
+        border: 1px solid #B9EBD7;
+        border-radius: 15px;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        box-sizing: border-box;
+        box-shadow: 0 4px 16px rgba(18, 185, 129, 0.08);
+    }
+    .message-icon-circle {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #12B981;
+        color: #FFFFFF;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .message-text {
+        font-size: 14px;
+        font-weight: 600;
+        color: #174F3D;
+        line-height: 1.4;
+    }
+    .portfolio-hero {
+        text-align: center;
+        margin-top: 18px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+    }
+    .hero-badge {
+        height: 46px;
+        width: 244px;
+        background: #E6F0FF;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        box-sizing: border-box;
+    }
+    .badge-text {
+        font-size: 14px;
+        font-weight: 650;
+        color: #4384ED;
+        letter-spacing: 0.06em;
+    }
+    .hero-heading {
+        margin: 8px 0 0;
+        font-size: 72px;
+        line-height: 1.08;
+        font-weight: 800;
+        letter-spacing: -2.5px;
+        white-space: nowrap;
+    }
+    .heading-dealer {
+        color: #12254A;
+    }
+    .heading-management {
+        color: #2563EB;
+    }
+    .hero-subtitle {
+        margin: 12px 0 0;
+        font-size: 23px;
+        line-height: 1.4;
+        color: #647899;
+        font-weight: 450;
+    }
+    .portfolio-group-grid {
+        margin-top: 38px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 28px;
+        width: 100%;
+    }
+    .portfolio-group-card {
+        height: 350px;
+        border-radius: 24px;
+        border-width: 1px;
+        border-style: solid;
+        padding: 26px 28px;
+        position: relative;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-sizing: border-box;
+        cursor: pointer;
+        transition: transform 180ms ease, box-shadow 180ms ease;
+        user-select: none;
+        outline: none;
+    }
+    .portfolio-group-card:hover {
+        transform: translateY(-2px);
+    }
+    .card-corner-shape {
+        position: absolute;
+        top: -25px;
+        right: -25px;
+        width: 150px;
+        height: 150px;
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 1;
+    }
+    .card-top-row {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        width: 100%;
+    }
+    .card-icon-badge {
+        width: 84px;
+        height: 84px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .card-options-menu {
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #647899;
+        cursor: pointer;
+        border-radius: 8px;
+        transition: background-color 150ms ease, color 150ms ease;
+        margin-top: 4px;
+    }
+    .card-options-menu:hover {
+        background: rgba(100, 120, 153, 0.12);
+        color: #13264B;
+    }
+    .card-titles-block {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        margin-top: 10px;
+        gap: 3px;
+    }
+    .card-code {
+        font-size: 13.5px;
+        font-weight: 700;
+        color: #4B6180;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        line-height: 1;
+    }
+    .card-name {
+        margin: 0;
+        font-size: 25px;
+        font-weight: 750;
+        color: #13264B;
+        line-height: 1.2;
+        letter-spacing: -0.02em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .portfolio-group-stats {
+        position: relative;
+        z-index: 2;
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        width: 100%;
+    }
+    .stat-panel {
+        height: 62px;
+        border-radius: 14px;
+        padding: 10px 14px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        box-sizing: border-box;
+    }
+    .stat-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .stat-info {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        line-height: 1.15;
+        min-width: 0;
+    }
+    .stat-count {
+        font-size: 18px;
+        font-weight: 750;
+        color: #13264B;
+    }
+    .stat-text {
+        font-size: 13px;
+        font-weight: 500;
+        color: #647899;
+    }
+    .portfolio-group-action {
+        position: relative;
+        z-index: 2;
+        margin-top: 16px;
+        width: 100%;
+    }
+    .action-form {
+        margin: 0;
+        width: 100%;
+    }
+    .open-group-btn {
+        width: 100%;
+        height: 53px;
+        border: none;
+        border-radius: 15px;
+        font-size: 15px;
+        font-weight: 700;
+        color: #FFFFFF;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 24px;
+        cursor: pointer;
+        transition: transform 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+        box-sizing: border-box;
+    }
+    .open-group-btn:hover {
+        transform: translateY(-2px);
+    }
+    .open-group-btn .btn-text {
+        color: #FFFFFF;
+        letter-spacing: 0.01em;
+    }
+    .open-group-btn .btn-arrow {
+        position: absolute;
+        right: 24px;
+        font-size: 18px;
+        line-height: 1;
+        transition: transform 180ms ease;
+    }
+    .open-group-btn:hover .btn-arrow {
+        transform: translateX(4px);
+    }
+    /* Theme Colors */
+    .portfolio-group-card.theme-green {
+        background: #F2FBF6;
+        border-color: #CDEFE0;
+        box-shadow: 0 10px 28px rgba(7, 135, 84, 0.05);
+    }
+    .portfolio-group-card.theme-green .card-corner-shape {
+        background: #078754;
+        opacity: 0.08;
+    }
+    .portfolio-group-card.theme-green .card-icon-badge {
+        background: #C9F4E0;
+        color: #078754;
+    }
+    .portfolio-group-card.theme-green .stat-panel {
+        background: #E0F6EB;
+    }
+    .portfolio-group-card.theme-green .stat-icon {
+        color: #078754;
+    }
+    .portfolio-group-card.theme-green .open-group-btn {
+        background: #078754;
+    }
+    .portfolio-group-card.theme-green .open-group-btn:hover {
+        background: #056e44;
+        box-shadow: 0 4px 14px rgba(7, 135, 84, 0.3);
+    }
+    .portfolio-group-card.theme-orange {
+        background: #FFFAEF;
+        border-color: #FFE8B8;
+        box-shadow: 0 10px 28px rgba(238, 138, 0, 0.05);
+    }
+    .portfolio-group-card.theme-orange .card-corner-shape {
+        background: #EE8A00;
+        opacity: 0.08;
+    }
+    .portfolio-group-card.theme-orange .card-icon-badge {
+        background: #FFE9B8;
+        color: #EE8A00;
+    }
+    .portfolio-group-card.theme-orange .stat-panel {
+        background: #FFF0CD;
+    }
+    .portfolio-group-card.theme-orange .stat-icon {
+        color: #EE8A00;
+    }
+    .portfolio-group-card.theme-orange .open-group-btn {
+        background: #EE8A00;
+    }
+    .portfolio-group-card.theme-orange .open-group-btn:hover {
+        background: #cf7800;
+        box-shadow: 0 4px 14px rgba(238, 138, 0, 0.3);
+    }
+    .portfolio-group-card.theme-blue {
+        background: #F1F7FF;
+        border-color: #CFE1FF;
+        box-shadow: 0 10px 28px rgba(23, 99, 237, 0.05);
+    }
+    .portfolio-group-card.theme-blue .card-corner-shape {
+        background: #1763ED;
+        opacity: 0.08;
+    }
+    .portfolio-group-card.theme-blue .card-icon-badge {
+        background: #D0E1FF;
+        color: #1763ED;
+    }
+    .portfolio-group-card.theme-blue .stat-panel {
+        background: #E1EDFF;
+    }
+    .portfolio-group-card.theme-blue .stat-icon {
+        color: #1763ED;
+    }
+    .portfolio-group-card.theme-blue .open-group-btn {
+        background: #1763ED;
+    }
+    .portfolio-group-card.theme-blue .open-group-btn:hover {
+        background: #114ebd;
+        box-shadow: 0 4px 14px rgba(23, 99, 237, 0.3);
+    }
+    .portfolio-group-card.theme-purple {
+        background: #FAF5FF;
+        border-color: #E9D5FF;
+        box-shadow: 0 10px 28px rgba(126, 34, 206, 0.05);
+    }
+    .portfolio-group-card.theme-purple .card-corner-shape {
+        background: #9333EA;
+        opacity: 0.08;
+    }
+    .portfolio-group-card.theme-purple .card-icon-badge {
+        background: #F3E8FF;
+        color: #7E22CE;
+    }
+    .portfolio-group-card.theme-purple .stat-panel {
+        background: #F3E8FF;
+    }
+    .portfolio-group-card.theme-purple .stat-icon {
+        color: #7E22CE;
+    }
+    .portfolio-group-card.theme-purple .open-group-btn {
+        background: #7E22CE;
+    }
+    .portfolio-create-bar {
+        margin-top: 28px;
+        height: 98px;
+        width: 100%;
+        background: #F6EFFF;
+        border: 1px solid #D8B5FF;
+        border-radius: 20px;
+        padding: 18px 28px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-sizing: border-box;
+    }
+    .create-bar-left {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+    }
+    .plus-box-outer {
+        width: 80px;
+        height: 68px;
+        border-radius: 17px;
+        background: #FFFFFF;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        box-shadow: 0 2px 6px rgba(116, 40, 232, 0.06);
+    }
+    .plus-box-inner {
+        width: 50px;
+        height: 50px;
+        border-radius: 12px;
+        background: #7428E8;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .create-bar-text {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .create-bar-title {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 750;
+        color: #17264B;
+        letter-spacing: -0.01em;
+    }
+    .create-bar-desc {
+        margin: 0;
+        font-size: 15px;
+        color: #687A9A;
+        font-weight: 450;
+    }
+    .create-bar-right {
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+    }
+    .create-group-btn {
+        height: 52px;
+        width: 190px;
+        border-radius: 15px;
+        background: #6D28D9;
+        color: #FFFFFF;
+        font-size: 15px;
+        font-weight: 700;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        box-sizing: border-box;
+        transition: background-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+    }
+    .create-group-btn:hover {
+        background: #5B21B6;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(109, 40, 217, 0.35);
+    }
+    .create-group-btn .btn-arrow {
+        font-size: 17px;
+        line-height: 1;
+    }
+    .portfolio-footer {
+        width: 100%;
+        text-align: center;
+        padding: 24px 0 32px;
+        font-size: 13px;
+        color: #647899;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        position: relative;
+        z-index: 10;
+    }
+    /* Responsive Media Queries */
+    @media (max-width: 1199px) and (min-width: 768px) {
+        .portfolio-container {
+            width: calc(100% - 48px);
+        }
+        .portfolio-group-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .hero-heading {
+            font-size: 56px;
+            white-space: normal;
+        }
+        .card-name {
+            font-size: 22px;
+        }
+    }
+    @media (max-width: 767px) {
+        .portfolio-navbar {
+            height: auto;
+            padding: 14px 0;
+        }
+        .navbar-inner {
+            width: calc(100% - 32px);
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+        .portfolio-container {
+            width: calc(100% - 32px);
+        }
+        .hero-heading {
+            font-size: clamp(28px, 8.5vw, 44px);
+            white-space: normal;
+            letter-spacing: -1.2px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 6px;
+        }
+        .hero-subtitle {
+            font-size: 18px;
+        }
+        .card-name {
+            font-size: 24px;
+        }
+        .portfolio-group-grid {
+            grid-template-columns: 1fr;
+        }
+        .portfolio-group-card {
+            height: auto;
+            min-height: 338px;
+        }
+        .portfolio-create-bar {
+            height: auto;
+            flex-direction: column;
+            align-items: stretch;
+            gap: 18px;
+            padding: 20px;
+        }
+        .create-bar-right,
+        .create-group-btn {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+    </style>
+</head>
+<body class="portfolio-page">
+    <!-- Subtle Background Decorations matching reference -->
+    <div class="portfolio-bg-decor" aria-hidden="true">
+        <span class="decor-circle-top-right"></span>
+        <span class="decor-circle-hero-left"></span>
+        <span class="decor-dots-left"></span>
+        <span class="decor-dots-right"></span>
+    </div>
+
+    <!-- 1. Navbar -->
+    <header class="portfolio-navbar">
+        <div class="portfolio-container navbar-inner">
+            <a class="portfolio-brand" href="{% url 'landing' %}">
+                <div class="brand-logo" aria-hidden="true">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                    </svg>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-name">AE AAFIA ENTERPRISE</span>
+                    <span class="brand-subtitle">Dealer Management System</span>
+                </div>
+            </a>
+
+            <div class="navbar-actions">
+                <a class="return-landing-btn" href="{% url 'landing' %}">
+                    <span class="btn-arrow-left" aria-hidden="true">&larr;</span>
+                    <span>Return to Landing</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- 2. Conditional Message Banner -->
+    {% if messages %}
+    <div class="portfolio-container">
+        {% for message in messages %}
+        <div class="portfolio-message portfolio-message-{{ message.tags|default:'info' }}" role="alert">
+            <div class="message-icon-circle" aria-hidden="true">
+                {% if message.tags == 'error' %}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                {% elif message.tags == 'warning' %}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                {% else %}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                {% endif %}
+            </div>
+            <div class="message-text">
+                {{ message }}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- 3. Main Centered Container (Max 1544px) -->
+    <main class="portfolio-container main-content-flow">
+        <!-- Hero Section -->
+        <section class="portfolio-hero">
+            <div class="hero-badge">
+                <span class="badge-icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4384ED" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                        <polyline points="2 17 12 22 22 17"></polyline>
+                        <polyline points="2 12 12 17 22 12"></polyline>
+                    </svg>
+                </span>
+                <span class="badge-text">BUSINESS PORTFOLIO</span>
+            </div>
+
+            <h1 class="hero-heading">
+                <span class="heading-dealer">Dealer</span>
+                <span class="heading-management">Management</span>
+            </h1>
+
+            <p class="hero-subtitle">Select a business group to continue</p>
+        </section>
+
+        <!-- 4. Group Cards Grid (portfolio-group-grid) -->
+        <section class="portfolio-group-grid" aria-label="Available business groups">
+            {% for item in groups %}
+            <article class="portfolio-group-card theme-{{ item.theme }}" tabindex="0">
+                <!-- Soft corner shape in top-right -->
+                <span class="card-corner-shape" aria-hidden="true"></span>
+
+                <!-- Top row: 84x84px Icon badge on left, 3-dot options menu on right -->
+                <div class="card-top-row">
+                    <div class="card-icon-badge" aria-hidden="true">
+                        {% if item.theme == 'green' %}
+                        <!-- BD Foods: Two leaves with stem matching reference -->
+                        <svg width="42" height="42" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 21v-7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                            <path d="M12 16c-3.2 0-6.8-1.8-6.8-5.8 4 0 6.2 3 6.8 5.8z" fill="currentColor"/>
+                            <path d="M12 16c-2-1-4-2.5-5.5-4.5" stroke="#C9F4E0" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M12 13c0-5.8 3.5-9 8-9 0 5-3 9-8 9z" fill="currentColor"/>
+                            <path d="M12 13c2.5-2.2 4.5-4.8 7-7" stroke="#C9F4E0" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                        {% elif item.theme == 'orange' %}
+                        <!-- Gold mark: 3-point crown icon with top circle matching reference -->
+                        <svg width="42" height="42" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="12" cy="4.2" r="1.6"/>
+                            <path d="M4 9.5l3.5 8.5h9L20 9.5l-4 3.5L12 7l-4 6z"/>
+                        </svg>
+                        {% elif item.theme == 'blue' %}
+                        <!-- New Zealand Dairy: Milk bottle icon matching reference -->
+                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M9 2h6" stroke-width="2.5"/>
+                            <path d="M9.5 2v2.5L7.5 7.5v11A2.5 2.5 0 0 0 10 21h4a2.5 2.5 0 0 0 2.5-2.5v-11L14.5 4.5V2" stroke-width="2.5"/>
+                            <rect x="9.5" y="12" width="5" height="6" rx="1" fill="currentColor" opacity="0.3"/>
+                        </svg>
+                        {% else %}
+                        <!-- Default icon -->
+                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        </svg>
+                        {% endif %}
+                    </div>
+
+                    <!-- 3-dot Menu Icon on top right -->
+                    <div class="card-options-menu" title="Options" aria-label="Options">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="12" cy="5" r="2.2"></circle>
+                            <circle cx="12" cy="12" r="2.2"></circle>
+                            <circle cx="12" cy="19" r="2.2"></circle>
+                        </svg>
+                    </div>
+                </div>
+
+                <!-- Middle Block: Code on top, Name below (Vertically stacked) -->
+                <div class="card-titles-block">
+                    <span class="card-code">{{ item.short_code }}</span>
+                    <h2 class="card-name">{{ item.group.name }}</h2>
+                </div>
+
+                <!-- 4. Statistics Panels (portfolio-group-stats) -->
+                <div class="portfolio-group-stats">
+                    <div class="stat-panel">
+                        <div class="stat-icon" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-count">{{ item.dealers_count }}</span>
+                            <span class="stat-text">Dealers</span>
+                        </div>
+                    </div>
+
+                    <div class="stat-panel">
+                        <div class="stat-icon" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2L3 7v10l9 5 9-5V7l-9-5zm0 2.2l6.5 3.6-2.5 1.4-6.5-3.6 2.5-1.4zM5.5 8.6l6.5 3.6v7.3l-6.5-3.6V8.6zm13 7.3l-5.5 3.1v-7.3l5.5-3.1v7.3z"/>
+                            </svg>
+                        </div>
+                        <div class="stat-info">
+                            <span class="stat-count">{{ item.products_count }}</span>
+                            <span class="stat-text">Products</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. Group Action Button (portfolio-group-action) -->
+                <div class="portfolio-group-action">
+                    <form method="post" action="{% url 'group-open' item.group.id %}" class="action-form">
+                        {% csrf_token %}
+                        <button type="submit" class="open-group-btn" aria-label="Open {{ item.group.name }} portfolio">
+                            <span class="btn-text">Open Group</span>
+                            <span class="btn-arrow" aria-hidden="true">&rarr;</span>
+                        </button>
+                    </form>
+                </div>
+            </article>
+            {% endfor %}
+        </section>
+
+        <!-- 6. Bottom Create New Group Panel (portfolio-create-bar) -->
+        <section class="portfolio-create-bar" aria-labelledby="create-bar-title">
+            <div class="create-bar-left">
+                <div class="plus-box-outer" aria-hidden="true">
+                    <div class="plus-box-inner">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </div>
+                </div>
+                <div class="create-bar-text">
+                    <h2 class="create-bar-title" id="create-bar-title">Create New Group</h2>
+                    <p class="create-bar-desc">Add another business group to your dealer management system</p>
+                </div>
+            </div>
+            <div class="create-bar-right">
+                <a class="create-group-btn" href="{% url 'group-create' %}">
+                    <span>Create Group</span>
+                    <span class="btn-arrow" aria-hidden="true">&rarr;</span>
+                </a>
+            </div>
+        </section>
+    </main>
+
+    <!-- 7. Footer (portfolio-footer) -->
+    <footer class="portfolio-footer">
+        AAFIA ENTERPRISE &bull; Dealer Management System
+    </footer>
+</body>
+</html>
